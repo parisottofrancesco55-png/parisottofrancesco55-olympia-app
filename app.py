@@ -2,66 +2,54 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# 1. Configurazione della Pagina
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
+# Configurazione Pagina
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 
-# 2. Configurazione Sicura dell'API
-if "GOOGLE_API_KEY" in st.secrets:
+# Funzione per configurare il modello
+def setup_model():
+    if "GOOGLE_API_KEY" not in st.secrets:
+        st.error("⚠️ Chiave API non trovata nei Secrets!")
+        return None
+    
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-else:
-    st.error("⚠️ Chiave API non trovata nei Secrets di Streamlit!")
-    st.stop()
+    
+    # Proviamo a usare il modello flash (molto veloce)
+    # Se da errore 404, il sistema proverà la versione alternativa
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Test rapido per vedere se il modello risponde
+        return model
+    except:
+        return genai.GenerativeModel('gemini-pro')
 
-# Inizializzazione del modello Gemini
-model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
+model = setup_model()
 
-# 3. Interfaccia Utente
+# --- INTERFACCIA ---
 st.title("🏥 TurnoSano AI")
-st.subheader("Il tuo Coach per la gestione dei turni")
+st.subheader("Il Coach per Infermieri")
 
-# --- NUOVA SEZIONE DOMANDE INIZIALI ---
-st.write("---")
-st.markdown("### 💬 Chiedi qualcosa al Coach")
-domanda_testo = st.text_input("Esempio: 'Cosa posso mangiare prima di una notte?' oppure 'Come dormire dopo lo smonto?'")
+domanda = st.text_input("Fai una domanda (es. Consigli per il turno di notte):")
+foto = st.file_uploader("O carica la foto dei turni:", type=["jpg", "jpeg", "png"])
 
-st.markdown("### 📸 Oppure analizza il tuo turno")
-file_caricato = st.file_uploader("Carica la foto del tabellone turni", type=["jpg", "png", "jpeg"])
-st.write("---")
-
-# 4. Logica di Risposta
-if st.button("Ottieni Consigli 🚀"):
-    # Verifichiamo che l'utente abbia inserito almeno una domanda o una foto
-    if domanda_testo or file_caricato:
-        with st.spinner("Il Coach sta analizzando..."):
+if st.button("Chiedi al Coach 🚀"):
+    if model and (domanda or foto):
+        with st.spinner("Analisi in corso..."):
             try:
-                # Prepariamo la richiesta per l'IA
-                prompt_base = (
-                    "Sei TurnoSano AI, un coach esperto per infermieri turnisti. "
-                    "Fornisci consigli pratici su sonno, alimentazione e gestione dell'energia. "
-                    "Sii empatico e professionale. Chiudi sempre ricordando che non sei un medico."
-                )
+                contenuto_input = []
+                prompt_base = "Sei un coach esperto per infermieri. Rispondi in modo empatico e pratico."
+                contenuto_input.append(prompt_base)
                 
-                input_per_ia = [prompt_base]
+                if domanda:
+                    contenuto_input.append(domanda)
+                if foto:
+                    img = Image.open(foto)
+                    contenuto_input.append(img)
                 
-                if domanda_testo:
-                    input_per_ia.append(f"Domanda dell'utente: {domanda_testo}")
-                
-                if file_caricato:
-                    immagine = Image.open(file_caricato)
-                    input_per_ia.append(immagine)
-                    input_per_ia.append("Analizza questa foto dei turni e integra i consigli.")
-
-                # Generazione della risposta
-                risposta = model.generate_content(input_per_ia)
-                
-                # Visualizzazione Risultato
-                st.success("✅ Ecco i consigli per te:")
+                risposta = model.generate_content(contenuto_input)
+                st.success("Consiglio del Coach:")
                 st.markdown(risposta.text)
                 
             except Exception as e:
                 st.error(f"Si è verificato un errore: {e}")
     else:
-        st.warning("Per favore, scrivi una domanda o carica una foto per iniziare!")
-
-# Piè di pagina
-st.caption("Creato per supportare gli eroi in corsia. 💙")
+        st.warning("Inserisci una domanda o carica una foto!")
