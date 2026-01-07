@@ -1,47 +1,38 @@
 import streamlit as st
 import requests
-import base64
-from PIL import Image
-import io
 
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI")
 
+# Recupero Chiave
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
-if not API_KEY:
-    st.error("Chiave API mancante!")
-    st.stop()
-
-def chiedi_a_gemini(testo, immagine=None):
-    # Qui usiamo gemini-1.5-flash perché supporta le foto, 
-    # ma se dà 404 scrivi solo testo e cambieremo in gemini-pro
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+def chiedi_a_gemini(testo):
+    # Usiamo gemini-pro (versione 1.0 stabile, solo testo)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
     headers = {'Content-Type': 'application/json'}
-    parts = [{"text": f"Sei un coach per infermieri: {testo}"}]
-    
-    if immagine:
-        buffered = io.BytesIO()
-        immagine.save(buffered, format="JPEG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": img_str}})
-
-    payload = {"contents": [{"parts": parts}]}
+    payload = {
+        "contents": [{
+            "parts": [{"text": f"Sei un coach per infermieri. Rispondi in italiano: {testo}"}]
+        }]
+    }
     response = requests.post(url, headers=headers, json=payload)
     return response.json()
 
-domanda = st.text_input("Fai una domanda:")
-foto = st.file_uploader("Carica foto:", type=["jpg", "png", "jpeg"])
+domanda = st.text_input("Fai una domanda al coach (es. come gestire il turno di notte):")
 
 if st.button("Chiedi 🚀"):
-    if domanda or foto:
-        with st.spinner("Pensando..."):
+    if domanda:
+        with st.spinner("Il Coach sta rispondendo..."):
             try:
-                img_obj = Image.open(foto) if foto else None
-                res = chiedi_a_gemini(domanda if domanda else "Analizza turno", img_obj)
+                res = chiedi_a_gemini(domanda)
                 if 'candidates' in res:
-                    st.write(res['candidates'][0]['content']['parts'][0]['text'])
+                    risposta = res['candidates'][0]['content']['parts'][0]['text']
+                    st.success("Consiglio del Coach:")
+                    st.markdown(risposta)
                 else:
-                    st.error(f"Errore: {res}")
+                    st.error(f"Errore API: {res.get('error', {}).get('message', 'Errore ignoto')}")
             except Exception as e:
-                st.error(f"Errore: {e}")
+                st.error(f"Errore tecnico: {e}")
+    else:
+        st.warning("Inserisci una domanda!")
