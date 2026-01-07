@@ -1,27 +1,62 @@
+!pip install streamlit # Install Streamlit
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# Configurazione
+# 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI: Coach per Infermieri")
 
-# Incolla la tua chiave qui
-CHIAVE = "AIzaSyCi8AhEy6woRWTBbQiwUJ8gyhRNGrIucxg"
-genai.configure(api_key=CHIAVE)
-model = genai.GenerativeModel('models/gemini-2.0-flash')
+# 2. Configurazione Sicura (usa i Secrets che hai impostato)
+# Using the CHIAVE_API available in the kernel state
+genai.configure(api_key=CHIAVE_API)
 
-st.write("Benvenuto! Carica la foto del tuo turno per ricevere consigli personalizzati.")
+# Usiamo l'ultimo modello disponibile
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-file_caricato = st.file_uploader("Carica o scatta una foto al tabellone turni", type=["jpg", "jpeg", "png"])
+st.write("Ciao! Sono il tuo coach. Puoi caricarmi una foto dei turni o semplicemente farmi una domanda.")
 
-if st.button("Analizza Turno"):
-    if file_caricato:
-        with st.spinner('Analisi in corso...'):
-            img = Image.open(file_caricato)
-            istruzioni = "Sei un coach per infermieri. Analizza il turno in foto e dai consigli su sonno e dieta."
-            risposta = model.generate_content([istruzioni, img])
-            st.success("Consiglio del Coach:")
-            st.markdown(risposta.text)
+# --- SEZIONE INPUT ---
+col1, col2 = st.columns(2)
+
+with col1:
+    file_caricato = st.file_uploader("📸 Foto Turni (opzionale)", type=["jpg", "jpeg", "png"])
+
+with col2:
+    domanda_testo = st.text_input("💬 Oppure scrivi qui la tua domanda:")
+
+# --- LOGICA DI RISPOSTA ---
+if st.button("Chiedi al Coach"):
+    # Controllo se l'utente ha inserito almeno qualcosa
+    if file_caricato or domanda_testo:
+        with st.spinner('Il Coach sta riflettendo...'):
+            try:
+                contenuto = []
+
+                # Definiamo le istruzioni di base
+                istruzioni = (
+                    "Sei TurnoSano AI, esperto in cronobiologia per infermieri. "
+                    "Analizza l'input e dai consigli pratici su sonno, dieta ed energia. "
+                    "Sii motivante ma scientifico. Chiudi ricordando che non sei un medico."
+                )
+                contenuto.append(istruzioni)
+
+                # Se c'è una domanda scritta, la aggiungiamo
+                if domanda_testo:
+                    contenuto.append(f"Domanda dell'infermiere: {domanda_testo}")
+
+                # Se c'è una foto, la aggiungiamo
+                if file_caricato:
+                    img = Image.open(file_caricato)
+                    contenuto.append(img)
+
+                # Generazione risposta
+                risposta = model.generate_content(contenuto)
+
+                st.success("Consiglio del Coach:")
+                st.markdown(risposta.text)
+
+            except Exception as e:
+                st.error(f"Si è verificato un errore: {e}")
     else:
-        st.warning("Per favore, carica prima una foto!")
+        st.warning("Per favore, scrivi una domanda o carica una foto!")
