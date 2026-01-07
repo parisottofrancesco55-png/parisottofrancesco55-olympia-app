@@ -2,60 +2,66 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# 1. Configurazione Pagina
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
-st.title("🏥 TurnoSano AI: Coach per Infermieri")
+# 1. Configurazione della Pagina
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
-# 2. Configurazione Sicura (usa i Secrets che hai impostato)
-# Using the CHIAVE_API available in the kernel state
-genai.configure(api_key=CHIAVE_API)
+# 2. Configurazione Sicura dell'API
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("⚠️ Chiave API non trovata nei Secrets di Streamlit!")
+    st.stop()
 
-# Usiamo l'ultimo modello disponibile
+# Inizializzazione del modello Gemini
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-st.write("Ciao! Sono il tuo coach. Puoi caricarmi una foto dei turni o semplicemente farmi una domanda.")
+# 3. Interfaccia Utente
+st.title("🏥 TurnoSano AI")
+st.subheader("Il tuo Coach per la gestione dei turni")
 
-# --- SEZIONE INPUT ---
-col1, col2 = st.columns(2)
+# --- NUOVA SEZIONE DOMANDE INIZIALI ---
+st.write("---")
+st.markdown("### 💬 Chiedi qualcosa al Coach")
+domanda_testo = st.text_input("Esempio: 'Cosa posso mangiare prima di una notte?' oppure 'Come dormire dopo lo smonto?'")
 
-with col1:
-    file_caricato = st.file_uploader("📸 Foto Turni (opzionale)", type=["jpg", "jpeg", "png"])
+st.markdown("### 📸 Oppure analizza il tuo turno")
+file_caricato = st.file_uploader("Carica la foto del tabellone turni", type=["jpg", "png", "jpeg"])
+st.write("---")
 
-with col2:
-    domanda_testo = st.text_input("💬 Oppure scrivi qui la tua domanda:")
-
-# --- LOGICA DI RISPOSTA ---
-if st.button("Chiedi al Coach"):
-    # Controllo se l'utente ha inserito almeno qualcosa
-    if file_caricato or domanda_testo:
-        with st.spinner('Il Coach sta riflettendo...'):
+# 4. Logica di Risposta
+if st.button("Ottieni Consigli 🚀"):
+    # Verifichiamo che l'utente abbia inserito almeno una domanda o una foto
+    if domanda_testo or file_caricato:
+        with st.spinner("Il Coach sta analizzando..."):
             try:
-                contenuto = []
-
-                # Definiamo le istruzioni di base
-                istruzioni = (
-                    "Sei TurnoSano AI, esperto in cronobiologia per infermieri. "
-                    "Analizza l'input e dai consigli pratici su sonno, dieta ed energia. "
-                    "Sii motivante ma scientifico. Chiudi ricordando che non sei un medico."
+                # Prepariamo la richiesta per l'IA
+                prompt_base = (
+                    "Sei TurnoSano AI, un coach esperto per infermieri turnisti. "
+                    "Fornisci consigli pratici su sonno, alimentazione e gestione dell'energia. "
+                    "Sii empatico e professionale. Chiudi sempre ricordando che non sei un medico."
                 )
-                contenuto.append(istruzioni)
-
-                # Se c'è una domanda scritta, la aggiungiamo
+                
+                input_per_ia = [prompt_base]
+                
                 if domanda_testo:
-                    contenuto.append(f"Domanda dell'infermiere: {domanda_testo}")
-
-                # Se c'è una foto, la aggiungiamo
+                    input_per_ia.append(f"Domanda dell'utente: {domanda_testo}")
+                
                 if file_caricato:
-                    img = Image.open(file_caricato)
-                    contenuto.append(img)
+                    immagine = Image.open(file_caricato)
+                    input_per_ia.append(immagine)
+                    input_per_ia.append("Analizza questa foto dei turni e integra i consigli.")
 
-                # Generazione risposta
-                risposta = model.generate_content(contenuto)
-
-                st.success("Consiglio del Coach:")
+                # Generazione della risposta
+                risposta = model.generate_content(input_per_ia)
+                
+                # Visualizzazione Risultato
+                st.success("✅ Ecco i consigli per te:")
                 st.markdown(risposta.text)
-
+                
             except Exception as e:
                 st.error(f"Si è verificato un errore: {e}")
     else:
-        st.warning("Per favore, scrivi una domanda o carica una foto!")
+        st.warning("Per favore, scrivi una domanda o carica una foto per iniziare!")
+
+# Piè di pagina
+st.caption("Creato per supportare gli eroi in corsia. 💙")
