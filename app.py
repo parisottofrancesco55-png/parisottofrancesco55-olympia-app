@@ -1,48 +1,48 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+import os
 
 # Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 
-# Configurazione API
-if "GOOGLE_API_KEY" in st.secrets:
-    # IMPORTANTE: Forziamo la configurazione a ignorare v1beta
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"], transport='rest')
-else:
-    st.error("Chiave API non trovata nei Secrets!")
-    st.stop()
+# Funzione di configurazione pulita
+def init_google_ai():
+    if "GOOGLE_API_KEY" in st.secrets:
+        # Forziamo l'uso della versione 1 stabile dell'API
+        os.environ["GOOGLE_API_VERSION"] = "v1"
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        # Usiamo il modello più recente e supportato
+        return genai.GenerativeModel('gemini-1.5-flash-latest')
+    else:
+        st.error("Chiave API mancante nei Secrets!")
+        return None
 
-# Proviamo a usare il modello gemini-pro (quello più compatibile in assoluto)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = init_google_ai()
 
 st.title("🏥 TurnoSano AI")
-st.write("Coach per Infermieri")
+st.write("Coach per Infermieri - Pronto a rispondere")
 
-domanda = st.text_input("Fai una domanda:")
-foto = st.file_uploader("Carica foto turni:", type=["jpg", "jpeg", "png"])
+domanda = st.text_input("Fai la tua domanda:")
+foto = st.file_uploader("O carica il tabellone turni:", type=["jpg", "jpeg", "png"])
 
-if st.button("Chiedi al Coach"):
-    if domanda or foto:
-        with st.spinner("Analisi..."):
+if st.button("Invia al Coach"):
+    if model and (domanda or foto):
+        with st.spinner("Analisi in corso..."):
             try:
-                # Costruiamo l'input
-                parts = ["Sei un coach per infermieri. Rispondi alla domanda o analizza la foto."]
-                if domanda: parts.append(domanda)
-                if foto: parts.append(Image.open(foto))
+                contenuto = []
+                if domanda: contenuto.append(domanda)
+                if foto: contenuto.append(Image.open(foto))
                 
-                # Chiamata al modello
-                response = model.generate_content(parts)
+                # Istruzione di sistema aggiunta nel prompt
+                prompt = "Sei un coach per infermieri. Rispondi in italiano in modo utile."
+                contenuto.insert(0, prompt)
+                
+                response = model.generate_content(contenuto)
+                st.success("Risposta del Coach:")
                 st.markdown(response.text)
-                
             except Exception as e:
-                # Se fallisce ancora, proviamo il modello "gemini-pro"
-                st.warning("Il modello Flash non risponde, provo il modello Pro...")
-                try:
-                    alt_model = genai.GenerativeModel('gemini-pro')
-                    response = alt_model.generate_content(domanda if domanda else "Ciao")
-                    st.markdown(response.text)
-                except Exception as e2:
-                    st.error(f"Errore persistente: {e2}")
+                st.error(f"Errore tecnico: {e}")
+                st.info("Se vedi ancora 404, prova a rigenerare la chiave API su Google AI Studio.")
     else:
-        st.warning("Inserisci qualcosa!")
+        st.warning("Inserisci del testo o una foto.")
