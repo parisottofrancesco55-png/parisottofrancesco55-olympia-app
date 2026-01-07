@@ -7,7 +7,7 @@ st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI: Coach per Infermieri")
 
 # Incolla la tua chiave qui
-CHIAVE = "AIzaSyD6zZAeP8EPcbMZ9q7yKcid3z7HGRXA1ms"
+CHIAVE = "AIzaSyCi8AhEy6woRWTBbQiwUJ8gyhRNGrIucxg"
 genai.configure(api_key=CHIAVE)
 model = genai.GenerativeModel('models/gemini-2.0-flash')
 
