@@ -8,24 +8,26 @@ import io
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI")
 
-# 2. Recupero Chiave
+# 2. Recupero Chiave dai Secrets
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
 if not API_KEY:
-    st.error("Chiave API non trovata nei Secrets!")
+    st.error("⚠️ Chiave API non trovata! Vai in Settings > Secrets e aggiungi: GOOGLE_API_KEY = 'tua_chiave'")
     st.stop()
 
-# 3. Funzione per chiamare Google direttamente (senza libreria genai)
+# 3. Funzione di comunicazione diretta con Google
 def chiedi_a_gemini(testo, immagine=None):
-    # Forziamo l'indirizzo V1 (NON beta)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # Usiamo l'URL diretto per evitare errori della libreria
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={API_KEY}"
     
     headers = {'Content-Type': 'application/json'}
     
-    # Prepariamo il testo
-    parts = [{"text": f"Sei un coach per infermieri. Rispondi in italiano: {testo}"}]
+    # Prompt di sistema per istruire l'IA
+    prompt_sistema = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano in modo empatico e pratico."
+    testo_finale = f"{prompt_sistema}\n\nDomanda utente: {testo}"
     
-    # Prepariamo l'immagine se presente
+    parts = [{"text": testo_finale}]
+    
     if immagine:
         buffered = io.BytesIO()
         immagine.save(buffered, format="JPEG")
@@ -42,25 +44,30 @@ def chiedi_a_gemini(testo, immagine=None):
     response = requests.post(url, headers=headers, json=payload)
     return response.json()
 
-# 4. Interfaccia
-domanda = st.text_input("Fai una domanda al coach:")
-foto = st.file_uploader("Carica foto turni:", type=["jpg", "jpeg", "png"])
+# 4. Interfaccia Utente
+st.write("Benvenuto! Chiedi consigli su turni, riposo o alimentazione.")
+
+domanda = st.text_input("Scrivi qui la tua domanda:")
+foto = st.file_uploader("Oppure carica la foto dei turni:", type=["jpg", "jpeg", "png"])
 
 if st.button("Chiedi al Coach 🚀"):
     if domanda or foto:
-        with st.spinner("Analisi in corso..."):
+        with st.spinner("Il Coach sta pensando..."):
             try:
                 img_obj = Image.open(foto) if foto else None
-                risultato = chiedi_a_gemini(domanda if domanda else "Analizza questo turno", img_obj)
+                testo_invio = domanda if domanda else "Analizza questa foto e dai consigli per gestire il turno."
                 
-                # Estraiamo la risposta dal JSON di Google
+                risultato = chiedi_a_gemini(testo_invio, img_obj)
+                
                 if 'candidates' in risultato:
-                    testo_risposta = risultato['candidates'][0]['content']['parts'][0]['text']
-                    st.success("Consiglio del Coach:")
-                    st.markdown(testo_risposta)
+                    risposta_ai = risultato['candidates'][0]['content']['parts'][0]['text']
+                    st.success("✅ Consiglio del Coach:")
+                    st.markdown(risposta_ai)
                 else:
-                    st.error(f"Errore API: {risultato}")
+                    errore_msg = risultato.get('error', {}).get('message', 'Errore sconosciuto')
+                    st.error(f"Errore dall'API di Google: {errore_msg}")
+                    st.info("Se l'errore è 404, prova a generare una nuova chiave su Google AI Studio.")
             except Exception as e:
-                st.error(f"Errore: {e}")
+                st.error(f"Errore tecnico: {e}")
     else:
-        st.warning("Inserisci qualcosa!")
+        st.warning("Inserisci una domanda o carica una foto per iniziare.")
