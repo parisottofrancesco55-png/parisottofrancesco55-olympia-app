@@ -18,7 +18,8 @@ if not API_KEY:
 # 3. Funzione di comunicazione diretta con Google
 def chiedi_a_gemini(testo, immagine=None):
     # Usiamo l'URL diretto per evitare errori della libreria
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={API_KEY}"
+    # Cerca questa riga e sostituiscila:
+url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
     
     headers = {'Content-Type': 'application/json'}
     
