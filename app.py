@@ -7,46 +7,44 @@ st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 
 # Configurazione API
 if "GOOGLE_API_KEY" in st.secrets:
+    # Forziamo la configurazione pulita
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 else:
     st.error("Configura la chiave API nei Secrets!")
     st.stop()
 
-# Usiamo il nome del modello senza 'models/' davanti, 
-# la libreria lo aggiungerà correttamente da sola.
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Usiamo il modello PRO che ha una compatibilità più ampia
+model = genai.GenerativeModel('gemini-1.5-pro')
 
 st.title("🏥 TurnoSano AI")
+st.write("Il coach per infermieri è pronto ad aiutarti.")
 
-# Sezione Domanda
-st.subheader("Chiedi al Coach")
-domanda = st.text_input("Come posso aiutarti oggi?")
+# Input
+domanda = st.text_input("Fai una domanda (es: consigli per il turno di notte):")
+foto = st.file_uploader("O carica la foto del tabellone turni:", type=["jpg", "jpeg", "png"])
 
-# Sezione Foto
-st.subheader("Analizza Turno")
-foto = st.file_uploader("Carica la foto del tabellone", type=["jpg", "jpeg", "png"])
-
-if st.button("Invia richiesta 🚀"):
+if st.button("Chiedi al Coach 🚀"):
     if domanda or foto:
-        with st.spinner("Il Coach sta elaborando i consigli..."):
+        with st.spinner("Il Coach sta analizzando..."):
             try:
-                # Creiamo il contenuto da inviare
-                richiesta = ["Sei TurnoSano AI, coach per infermieri. Rispondi in modo pratico."]
+                contenuto = []
+                # Istruzione di sistema come stringa
+                istruzioni = "Sei TurnoSano AI, un coach per infermieri. Dai consigli pratici su sonno e dieta."
                 
-                if domanda:
-                    richiesta.append(domanda)
                 if foto:
                     img = Image.open(foto)
-                    richiesta.append(img)
+                    # Se c'è una foto, inviamo una lista con testo e immagine
+                    testo_completo = f"{istruzioni}\nDomanda: {domanda}" if domanda else istruzioni
+                    risposta = model.generate_content([testo_completo, img])
+                else:
+                    # Se c'è solo testo
+                    risposta = model.generate_content(f"{istruzioni}\nDomanda: {domanda}")
                 
-                # Generazione
-                risposta = model.generate_content(richiesta)
-                
-                st.success("Ecco i tuoi consigli:")
+                st.success("Consiglio del Coach:")
                 st.markdown(risposta.text)
                 
             except Exception as e:
-                # Se l'errore persiste, mostriamo un messaggio più pulito
-                st.error(f"Nota: Il servizio Google è momentaneamente occupato o il modello non è raggiungibile. Dettaglio: {e}")
+                st.error(f"Errore: {e}")
+                st.info("Prova a ricaricare la pagina tra un istante.")
     else:
-        st.warning("Per favore, scrivi qualcosa o carica una foto!")
+        st.warning("Inserisci una domanda o una foto!")
