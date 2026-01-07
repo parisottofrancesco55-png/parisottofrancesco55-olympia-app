@@ -18,7 +18,8 @@ if not API_KEY:
 # 3. Funzione aggiornata alla versione stabile (v1) e modello flash
 def chiedi_a_gemini(testo, immagine=None):
     # NOTA: Usiamo /v1/ e gemini-1.5-flash
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # Prova a sostituire l'URL con questo specifico:
+url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={API_KEY}"
     
     headers = {'Content-Type': 'application/json'}
     
