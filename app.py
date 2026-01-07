@@ -1,48 +1,66 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
+import base64
 from PIL import Image
-import os
+import io
 
-# Configurazione Pagina
+# 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
-
-# Funzione di configurazione pulita
-def init_google_ai():
-    if "GOOGLE_API_KEY" in st.secrets:
-        # Forziamo l'uso della versione 1 stabile dell'API
-        os.environ["GOOGLE_API_VERSION"] = "v1"
-        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-        # Usiamo il modello più recente e supportato
-        return genai.GenerativeModel('gemini-1.5-flash-latest')
-    else:
-        st.error("Chiave API mancante nei Secrets!")
-        return None
-
-model = init_google_ai()
-
 st.title("🏥 TurnoSano AI")
-st.write("Coach per Infermieri - Pronto a rispondere")
 
-domanda = st.text_input("Fai la tua domanda:")
-foto = st.file_uploader("O carica il tabellone turni:", type=["jpg", "jpeg", "png"])
+# 2. Recupero Chiave
+API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
-if st.button("Invia al Coach"):
-    if model and (domanda or foto):
+if not API_KEY:
+    st.error("Chiave API non trovata nei Secrets!")
+    st.stop()
+
+# 3. Funzione per chiamare Google direttamente (senza libreria genai)
+def chiedi_a_gemini(testo, immagine=None):
+    # Forziamo l'indirizzo V1 (NON beta)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    
+    headers = {'Content-Type': 'application/json'}
+    
+    # Prepariamo il testo
+    parts = [{"text": f"Sei un coach per infermieri. Rispondi in italiano: {testo}"}]
+    
+    # Prepariamo l'immagine se presente
+    if immagine:
+        buffered = io.BytesIO()
+        immagine.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        parts.append({
+            "inline_data": {
+                "mime_type": "image/jpeg",
+                "data": img_str
+            }
+        })
+
+    payload = {"contents": [{"parts": parts}]}
+    
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+# 4. Interfaccia
+domanda = st.text_input("Fai una domanda al coach:")
+foto = st.file_uploader("Carica foto turni:", type=["jpg", "jpeg", "png"])
+
+if st.button("Chiedi al Coach 🚀"):
+    if domanda or foto:
         with st.spinner("Analisi in corso..."):
             try:
-                contenuto = []
-                if domanda: contenuto.append(domanda)
-                if foto: contenuto.append(Image.open(foto))
+                img_obj = Image.open(foto) if foto else None
+                risultato = chiedi_a_gemini(domanda if domanda else "Analizza questo turno", img_obj)
                 
-                # Istruzione di sistema aggiunta nel prompt
-                prompt = "Sei un coach per infermieri. Rispondi in italiano in modo utile."
-                contenuto.insert(0, prompt)
-                
-                response = model.generate_content(contenuto)
-                st.success("Risposta del Coach:")
-                st.markdown(response.text)
+                # Estraiamo la risposta dal JSON di Google
+                if 'candidates' in risultato:
+                    testo_risposta = risultato['candidates'][0]['content']['parts'][0]['text']
+                    st.success("Consiglio del Coach:")
+                    st.markdown(testo_risposta)
+                else:
+                    st.error(f"Errore API: {risultato}")
             except Exception as e:
-                st.error(f"Errore tecnico: {e}")
-                st.info("Se vedi ancora 404, prova a rigenerare la chiave API su Google AI Studio.")
+                st.error(f"Errore: {e}")
     else:
-        st.warning("Inserisci del testo o una foto.")
+        st.warning("Inserisci qualcosa!")
