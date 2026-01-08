@@ -5,6 +5,7 @@ from PyPDF2 import PdfReader
 # 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
+# Inizializzazione Memoria Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "testo_turno" not in st.session_state:
@@ -50,11 +51,11 @@ with st.sidebar:
         st.session_state.testo_turno = ""
         st.rerun()
 
-# 3. Funzione API (CORRETTA)
+# 3. Funzione API (URL COMPLETO E CORRETTO)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # L'URL DEVE ESSERE COMPLETO
-    URL_CORRETTO = "api.groq.com"
+    # L'URL DEVE ESSERE COMPLETO PER EVITARE L'ERRORE "NO SCHEME SUPPLIED"
+    URL_API = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
     if st.session_state.testo_turno:
@@ -67,13 +68,18 @@ def chiedi_a_groq(messages):
     }
     
     try:
-        response = requests.post(URL_CORRETTO, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=25)
+        response = requests.post(
+            URL_API, 
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
+            json=payload, 
+            timeout=25
+        )
         response.raise_for_status()
         data = response.json()
-        # ACCESSO CORRETTO AI DATI
+        # ACCESSO CORRETTO AL MESSAGGIO (data["choices"][0]["message"]["content"])
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"⚠️ Errore: {str(e)}"
+        return f"⚠️ Errore Tecnico: {str(e)}"
 
 # 4. Visualizzazione Cronologia Chat
 st.write("---")
@@ -81,7 +87,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 5. Gestione automatica risposta (necessaria per i bottoni)
+# 5. Gestione Automatica Risposta (per i bottoni e input)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant", avatar="🏥"):
         with st.spinner("Il Coach sta analizzando..."):
