@@ -2,60 +2,101 @@ import streamlit as st
 import requests
 from PyPDF2 import PdfReader
 
-# Configurazione Pagina
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
+# 1. Configurazione Pagina
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "testo_turno" not in st.session_state:
+    st.session_state.testo_turno = ""
+
+# --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
+st.write(f"Il tuo Coach per la gestione dei turni - Oggi è l'8 Gennaio 2026")
 
-# Recupero Chiave Groq
-API_KEY = st.secrets.get("GROQ_API_KEY")
+# --- NUOVA SEZIONE: SUGGERIMENTI RAPIDI ---
+st.write("### ⚡ Azioni Rapide")
+col1, col2, col3 = st.columns(3)
 
-def chiedi_a_groq(testo_utente, contesto_pdf=""):
-    # URL DEFINITO IN MODO RIGIDO PER EVITARE ERRORI DI SCHEMA
-    base_url = "https://api.groq.com/openai/v1/chat/completions"
+# Funzione di supporto per i bottoni per evitare ripetizione di codice
+def aggiungi_messaggio_rapido(testo):
+    st.session_state.messages.append({"role": "user", "content": testo})
+    st.rerun()
+
+with col1:
+    if st.button("🌙 SOS Turno Notte"):
+        aggiungi_messaggio_rapido("Dammi una strategia pratica per gestire il turno di notte di stasera e il riposo di domani.")
+with col2:
+    if st.button("🥗 Alimentazione"):
+        aggiungi_messaggio_rapido("Cosa mi consigli di mangiare durante e dopo il turno per evitare spossatezza?")
+with col3:
+    if st.button("🧘 Stress in Reparto"):
+        aggiungi_messaggio_rapido("Consigliami un esercizio di 2 minuti per scaricare la tensione durante il turno.")
+
+# 2. Sidebar per il PDF
+with st.sidebar:
+    st.header("📂 Carica Turno")
+    file_pdf = st.file_uploader("Trascina qui il tuo PDF", type="pdf")
+    if file_pdf:
+        try:
+            reader = PdfReader(file_pdf)
+            testo_estratto = "".join([page.extract_text() or "" for page in reader.pages])
+            st.session_state.testo_turno = testo_estratto
+            st.success("✅ Turno analizzato!")
+        except Exception as e:
+            st.error(f"Errore PDF: {e}")
     
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    prompt_sistema = "Sei TurnoSano AI, un coach esperto per infermieri. "
-    if contesto_pdf:
-        prompt_sistema += f"Dati del turno: {contesto_pdf}. "
-    prompt_sistema += "Rispondi in italiano."
+    st.write("---")
+    if st.button("🗑️ Reset Chat"):
+        st.session_state.messages = []
+        st.session_state.testo_turno = ""
+        st.rerun()
 
+# 3. Funzione API (CORRETTA CON URL COMPLETO)
+def chiedi_a_groq(messages):
+    api_key = st.secrets.get("GROQ_API_KEY")
+    # URL completo obbligatorio per evitare "No scheme supplied"
+    URL_CORRETTO = "api.groq.com"
+    
+    system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
+    if st.session_state.testo_turno:
+        system_prompt += f"\nContesto turno attuale dell'utente: {st.session_state.testo_turno}"
+    
     payload = {
-        "model": "llama-3.1-8b-instant", # Modello supportato nel 2026
-        "messages": [
-            {"role": "system", "content": prompt_sistema},
-            {"role": "user", "content": testo_utente}
-        ]
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "system", "content": system_prompt}] + messages,
+        "temperature": 0.7
     }
     
     try:
-        # .strip() rimuove eventuali spazi o invii invisibili
-        response = requests.post(base_url.strip(), headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            URL_CORRETTO, 
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
+            json=payload, 
+            timeout=25
+        )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        # Nota: serve [0] per accedere al primo elemento della lista choices
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return {"error_tecnico": str(e)}
+        return f"⚠️ Errore Tecnico: {str(e)}"
 
-# --- INTERFACCIA ---
-file_pdf = st.sidebar.file_uploader("Carica turno PDF", type="pdf")
-testo_estratto = ""
+# 4. Visualizzazione Cronologia Chat
+st.write("---")
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-if file_pdf:
-    reader = PdfReader(file_pdf)
-    for page in reader.pages:
-        testo_estratto += page.extract_text() + "\n"
-    st.sidebar.success("PDF Letto!")
-
-domanda = st.text_input("Fai una domanda:")
-
-if st.button("Invia 🚀"):
-    if domanda and API_KEY:
-        with st.spinner("Risposta in corso..."):
-            res = chiedi_a_groq(domanda, testo_estratto)
-            if 'choices' in res:
-                st.markdown(res['choices'][0]['message']['content'])
-            else:
-                st.error(f"Errore: {res.get('error_tecnico', 'Errore API')}")
+# 5. Chat Input
+if prompt := st.chat_input("Scrivi qui la tua domanda..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    with st.chat_message("assistant", avatar="🏥"):
+        with st.spinner("Il Coach sta analizzando..."):
+            risposta = chiedi_a_groq(st.session_state.messages)
+            st.markdown(risposta)
+            st.session_state.messages.append({"role": "assistant", "content": risposta})
+            st.rerun() # Forza l'aggiornamento grafico della chat
