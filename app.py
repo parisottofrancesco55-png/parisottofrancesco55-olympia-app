@@ -13,7 +13,7 @@ if "testo_turno" not in st.session_state:
 
 # --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
-st.write("Il tuo Coach per la gestione dei turni (Aggiornato Gennaio 2026)")
+st.write("Il tuo Coach per la gestione dei turni (Aggiornato 2026)")
 
 # --- SEZIONE AZIONI RAPIDE ---
 st.write("### ⚡ Azioni Rapide")
@@ -51,10 +51,10 @@ with st.sidebar:
         st.session_state.testo_turno = ""
         st.rerun()
 
-# 3. Funzione API (URL COMPLETO E PROTOCOLLO HTTPS)
+# 3. Funzione API (URL COMPLETO CON PROTOCOLLO HTTPS)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # L'URL deve essere completo di protocollo https://
+    # L'URL deve essere completo e iniziare con https://
     URL_API = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
@@ -87,7 +87,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 5. Gestione Risposta (per bottoni e input manuale)
+# 5. Gestione Risposta (necessaria per bottoni e input manuale)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant", avatar="🏥"):
         with st.spinner("Il Coach sta analizzando..."):
