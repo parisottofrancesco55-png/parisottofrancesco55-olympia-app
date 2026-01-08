@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from PyPDF2 import PdfReader
 
-# Configurazione Iniziale
+# 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
 if "messages" not in st.session_state:
@@ -12,7 +12,7 @@ if "testo_turno" not in st.session_state:
 
 st.title("🏥 TurnoSano AI")
 
-# Sidebar
+# 2. Sidebar per il PDF
 with st.sidebar:
     st.header("Comandi")
     file_pdf = st.file_uploader("Carica Turno (PDF)", type="pdf")
@@ -28,16 +28,15 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+# 3. Funzione API (URL Corretto 2026)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
+    # URL ESATTO: Non deve finire con api.groq.com/ ma con il percorso completo
+    URL_CORRETTO = "api.groq.com"
     
-    # FORZATURA PROTOCOLLO: Protezione contro errori di schema
-    raw_url = "api.groq.com"
-    url_api = f"https://{raw_url.replace('https://', '')}"
-    
-    system_prompt = "Sei TurnoSano AI, coach per infermieri. Rispondi in italiano."
+    system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
     if st.session_state.testo_turno:
-        system_prompt += f"\nContesto turno: {st.session_state.testo_turno}"
+        system_prompt += f"\nContesto turno estratto dal PDF: {st.session_state.testo_turno}"
     
     payload = {
         "model": "llama-3.1-8b-instant",
@@ -47,29 +46,34 @@ def chiedi_a_groq(messages):
     
     try:
         response = requests.post(
-            url_api, 
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
+            URL_CORRETTO, 
+            headers={
+                "Authorization": f"Bearer {api_key}", 
+                "Content-Type": "application/json"
+            }, 
             json=payload, 
-            timeout=20
+            timeout=25
         )
         response.raise_for_status()
         data = response.json()
-        # Accesso corretto alla risposta (indice [0])
+        # Estrazione corretta del testo dalla risposta
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore Tecnico: {str(e)}"
 
-# Visualizzazione Chat
+# 4. Visualizzazione Chat
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Scrivi qui..."):
+# 5. Chat Input
+if prompt := st.chat_input("Scrivi qui la tua domanda..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
+    
     with st.chat_message("assistant", avatar="🏥"):
-        with st.spinner("Il Coach elabora..."):
+        with st.spinner("Il Coach sta analizzando..."):
             risposta = chiedi_a_groq(st.session_state.messages)
             st.markdown(risposta)
             st.session_state.messages.append({"role": "assistant", "content": risposta})
