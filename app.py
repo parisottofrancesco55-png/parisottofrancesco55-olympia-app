@@ -6,22 +6,25 @@ from PyPDF2 import PdfReader
 # 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# 2. Gestione Autenticazione (Versione 2026)
-# Definiamo gli utenti
-names = ["Infermiera Anna", "Infermiere Francesco"]
-usernames = ["anna2026", "francesco2026"]
-passwords = ["turno123", "coach2026"]
-
-# Correzione TypeError: Nuovo metodo per hashare le password
-hashed_passwords = stauth.Hasher.hash_passwords(passwords)
-
-credentials = {"usernames": {}}
-for i in range(len(usernames)):
-    credentials["usernames"][usernames[i]] = {
-        "name": names[i],
-        "password": hashed_passwords[i]
+# 2. Gestione Autenticazione (Versione Aggiornata 2026)
+# Creiamo prima il dizionario delle credenziali
+credentials = {
+    "usernames": {
+        "anna2026": {
+            "name": "Infermiera Anna",
+            "password": "turno123" # Verrà hashata subito dopo
+        },
+        "francesco2026": {
+            "name": "Infermiere Francesco",
+            "password": "coach2026" # Verrà hashata subito dopo
+        }
     }
+}
 
+# Correzione TypeError: Il metodo hash_passwords ora richiede l'intero dizionario credentials
+stauth.Hasher.hash_passwords(credentials)
+
+# Inizializzazione Authenticate
 authenticator = stauth.Authenticate(
     credentials,
     "turnosano_cookie",
@@ -30,15 +33,16 @@ authenticator = stauth.Authenticate(
 )
 
 # Interfaccia Login
-name, authentication_status, username = authenticator.login('Login', 'main')
+# Nota: La versione 2026 non restituisce più 3 valori ma gestisce lo stato internamente
+authenticator.login()
 
-if authentication_status == False:
+if st.session_state["authentication_status"] == False:
     st.error('Username o Password errati')
-elif authentication_status == None:
-    st.warning('Inserisci le tue credenziali per accedere al Coach')
-elif authentication_status:
+elif st.session_state["authentication_status"] == None:
+    st.warning('Inserisci le tue credenziali per accedere')
+elif st.session_state["authentication_status"]:
     
-    # --- INIZIO APP REALE ---
+    # --- AREA RISERVATA ---
     
     # Inizializzazione Session State
     if "messages" not in st.session_state:
@@ -48,11 +52,10 @@ elif authentication_status:
 
     # Sidebar
     with st.sidebar:
-        st.write(f"Benvenuto, **{name}**")
+        st.write(f"Benvenuto, **{st.session_state['name']}**")
         authenticator.logout('Logout', 'sidebar')
         st.divider()
-        st.header("📂 Carica Turno")
-        file_pdf = st.file_uploader("Carica PDF", type="pdf")
+        file_pdf = st.file_uploader("📂 Carica Turno PDF", type="pdf")
         if file_pdf:
             reader = PdfReader(file_pdf)
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
@@ -65,25 +68,25 @@ elif authentication_status:
     c1, c2, c3 = st.columns(3)
     
     input_rapido = None
-    if c1.button("🌙 SOS Turno Notte"):
-        input_rapido = "Dammi una strategia per gestire la notte di stasera."
-    if c2.button("🥗 Alimentazione"):
-        input_rapido = "Cosa mangiare per non essere stanchi?"
-    if c3.button("🧘 Stress Relief"):
-        input_rapido = "Esercizio rapido anti-stress."
+    if c1.button("🌙 SOS Turno Notte"): input_rapido = "Dammi una strategia per la notte."
+    if c2.button("🥗 Alimentazione"): input_rapido = "Cosa mangiare in turno?"
+    if c3.button("🧘 Stress Relief"): input_rapido = "Esercizio rapido anti-stress."
 
     # --- LOGICA CHAT ---
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    # Assicurati che GROQ_API_KEY sia nei Secrets di Streamlit
+    try:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    except Exception as e:
+        st.error("Configura la GROQ_API_KEY nei Secrets!")
+        st.stop()
 
-    # Gestione input (da chat o da bottone rapido)
     prompt = st.chat_input("Chiedi al Coach...")
-    if input_rapido:
-        prompt = input_rapido
+    if input_rapido: prompt = input_rapido
 
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        prompt_sistema = f"Sei TurnoSano AI, coach per l'infermiere {name}. Rispondi in italiano."
+        prompt_sistema = f"Sei TurnoSano AI, coach per l'infermiere {st.session_state['name']}."
         if st.session_state.testo_turno:
             prompt_sistema += f"\nContesto turno: {st.session_state.testo_turno}"
         
