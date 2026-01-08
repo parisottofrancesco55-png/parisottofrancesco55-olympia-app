@@ -13,7 +13,7 @@ if "testo_turno" not in st.session_state:
 
 # --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
-st.write("Il tuo Coach per la gestione dei turni (Aggiornato 2026)")
+st.write("Il tuo Coach per la gestione dei turni (Aggiornato Gennaio 2026)")
 
 # --- SEZIONE AZIONI RAPIDE ---
 st.write("### ⚡ Azioni Rapide")
@@ -76,7 +76,7 @@ def chiedi_a_groq(messages):
         )
         response.raise_for_status()
         data = response.json()
-        # Estrazione corretta del messaggio (data['choices'][0]['message']['content'])
+        # Estrazione corretta: data['choices'][0]['message']['content']
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore Tecnico: {str(e)}"
