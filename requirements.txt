@@ -1,4 +1,4 @@
 streamlit
+streamlit-authenticator
 groq
 PyPDF2
-streamlit-authenticator
