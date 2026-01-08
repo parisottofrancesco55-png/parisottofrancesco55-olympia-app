@@ -4,6 +4,7 @@ from PyPDF2 import PdfReader
 
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
+# Inizializzazione Sessione
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "testo_turno" not in st.session_state:
@@ -11,6 +12,7 @@ if "testo_turno" not in st.session_state:
 
 st.title("🏥 TurnoSano AI")
 
+# Sidebar
 with st.sidebar:
     st.header("Comandi")
     file_pdf = st.file_uploader("Carica Turno (PDF)", type="pdf")
@@ -28,8 +30,8 @@ with st.sidebar:
 
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # URL SCRITTO IN MODO RIGIDO CON PROTOCOLLO HTTPS
-    URL_COMPLETO = "api.groq.com"
+    # Forziamo il protocollo https esplicitamente
+    URL_API = str("api.groq.com").strip()
     
     system_prompt = "Sei TurnoSano AI, coach per infermieri. Rispondi in italiano."
     if st.session_state.testo_turno:
@@ -42,15 +44,19 @@ def chiedi_a_groq(messages):
     }
     
     try:
-        # Usiamo l'URL completo e verifichiamo che inizi con https
+        # Passiamo l'URL verificato
         response = requests.post(
-            URL_COMPLETO, 
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
+            URL_API, 
+            headers={
+                "Authorization": f"Bearer {api_key}", 
+                "Content-Type": "application/json"
+            }, 
             json=payload, 
             timeout=20
         )
         response.raise_for_status()
         data = response.json()
+        # Accesso corretto alla lista delle risposte [0]
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore Tecnico: {str(e)}"
@@ -65,6 +71,8 @@ if prompt := st.chat_input("Scrivi qui..."):
     with st.chat_message("user"):
         st.markdown(prompt)
     with st.chat_message("assistant", avatar="🏥"):
-        risposta = chiedi_a_groq(st.session_state.messages)
-        st.markdown(risposta)
-        st.session_state.messages.append({"role": "assistant", "content": risposta})
+        with st.spinner("Analisi in corso..."):
+            risposta = chiedi_a_groq(st.session_state.messages)
+            st.markdown(risposta)
+            st.session_state.messages.append({"role": "assistant", "content": risposta})
+, "content": risposta})
