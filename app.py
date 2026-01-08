@@ -17,12 +17,12 @@ st.write("Coach per Infermieri (Versione 2026)")
 # --- FUNZIONE API ---
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # URL BLINDATO CON HTTPS
-    url = "api.groq.com"
+    # URL SCRITTO IN MODO RIGIDO PER EVITARE ERRORI DI SCHEMA
+    URL_FINALE = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, coach esperto per infermieri. Rispondi in italiano."
     if st.session_state.testo_turno:
-        system_prompt += f"\nContesto turno: {st.session_state.testo_turno}"
+        system_prompt += f"\nContesto turno estratto dal PDF: {st.session_state.testo_turno}"
     
     payload = {
         "model": "llama-3.1-8b-instant",
@@ -31,32 +31,45 @@ def chiedi_a_groq(messages):
     }
     
     try:
-        response = requests.post(url, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=20)
+        # Usiamo l'URL rigido definito sopra
+        response = requests.post(
+            URL_FINALE, 
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }, 
+            json=payload, 
+            timeout=25
+        )
         response.raise_for_status()
         data = response.json()
+        # Accesso corretto all'indice della risposta
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"⚠️ Errore API: {str(e)}"
+        return f"⚠️ Errore Tecnico: {str(e)}"
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("📂 Carica Turno")
     file_pdf = st.file_uploader("Carica il tuo PDF", type="pdf")
     if file_pdf:
-        reader = PdfReader(file_pdf)
-        testo_pdf = "".join([page.extract_text() or "" for page in reader.pages])
-        st.session_state.testo_turno = testo_pdf
-        st.success("✅ PDF Caricato")
+        try:
+            reader = PdfReader(file_pdf)
+            testo_pdf = "".join([page.extract_text() or "" for page in reader.pages])
+            st.session_state.testo_turno = testo_pdf
+            st.success("✅ PDF Caricato")
+        except Exception as e:
+            st.error(f"Errore lettura PDF: {e}")
     
     if st.button("🗑️ Reset Chat"):
         st.session_state.messages = []
+        st.session_state.testo_turno = ""
         st.rerun()
 
 # --- INTERFACCIA: TASTI RAPIDI ---
 st.write("### ⚡ Suggerimenti Rapidi")
 col1, col2, col3 = st.columns(3)
 
-# Variabile per gestire l'input da pulsante
 input_utente = None
 
 with col1:
@@ -75,10 +88,10 @@ if prompt := st.chat_input("Scrivi qui la tua domanda..."):
 
 # --- LOGICA DI RISPOSTA ---
 if input_utente:
-    # Aggiungi messaggio utente alla memoria
+    # Aggiungi messaggio utente
     st.session_state.messages.append({"role": "user", "content": input_utente})
     
-    # Richiesta immediata all'AI
+    # Richiesta all'AI
     with st.spinner("Il Coach sta analizzando..."):
         risposta_ai = chiedi_a_groq(st.session_state.messages)
         st.session_state.messages.append({"role": "assistant", "content": risposta_ai})
