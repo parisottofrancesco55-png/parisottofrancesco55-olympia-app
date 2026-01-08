@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 from PyPDF2 import PdfReader
 
+# 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
 # Inizializzazione Sessione
@@ -12,7 +13,7 @@ if "testo_turno" not in st.session_state:
 
 st.title("🏥 TurnoSano AI")
 
-# Sidebar
+# 2. Sidebar
 with st.sidebar:
     st.header("Comandi")
     file_pdf = st.file_uploader("Carica Turno (PDF)", type="pdf")
@@ -28,10 +29,11 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+# 3. Funzione API (URL blindato per il 2026)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # Forziamo il protocollo https esplicitamente
-    URL_API = str("api.groq.com").strip()
+    # L'URL deve essere esattamente questo
+    url_api = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, coach per infermieri. Rispondi in italiano."
     if st.session_state.testo_turno:
@@ -44,35 +46,33 @@ def chiedi_a_groq(messages):
     }
     
     try:
-        # Passiamo l'URL verificato
         response = requests.post(
-            URL_API, 
-            headers={
-                "Authorization": f"Bearer {api_key}", 
-                "Content-Type": "application/json"
-            }, 
+            url_api, 
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
             json=payload, 
             timeout=20
         )
         response.raise_for_status()
         data = response.json()
-        # Accesso corretto alla lista delle risposte [0]
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"⚠️ Errore Tecnico: {str(e)}"
+        return f"⚠️ Errore: {str(e)}"
 
-# Visualizzazione Chat
+# 4. Visualizzazione Chat
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Scrivi qui..."):
+# 5. Input Utente e Risposta
+if prompt := st.chat_input("Scrivi qui la tua domanda..."):
+    # Messaggio Utente
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
+    
+    # Risposta Assistente
     with st.chat_message("assistant", avatar="🏥"):
-        with st.spinner("Analisi in corso..."):
+        with st.spinner("Il Coach sta analizzando..."):
             risposta = chiedi_a_groq(st.session_state.messages)
             st.markdown(risposta)
             st.session_state.messages.append({"role": "assistant", "content": risposta})
-, "content": risposta})
