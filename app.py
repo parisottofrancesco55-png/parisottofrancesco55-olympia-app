@@ -6,58 +6,55 @@ st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI")
 st.write("Coach per Infermieri (Aggiornato 2026)")
 
-# Recupero Chiave Groq dai Secrets di Streamlit
+# Recupero Chiave Groq
 API_KEY = st.secrets.get("GROQ_API_KEY")
 
 def chiedi_a_groq(testo):
-    url = "api.groq.com"
+    # L'URL DEVE iniziare con https://
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
+    
     payload = {
-        # Modello aggiornato: llama3-8b-8192 è deprecato
-        "model": "llama-3.1-8b-instant", 
+        "model": "llama-3.1-8b-instant", # Modello aggiornato 2026
         "messages": [
             {
                 "role": "system", 
-                "content": "Sei TurnoSano AI, un coach esperto per infermieri turnisti. Rispondi in italiano con consigli pratici, empatici e scientifici su sonno, alimentazione e gestione dello stress da turnazione."
+                "content": "Sei TurnoSano AI, un coach esperto per infermieri turnisti. Rispondi in italiano con consigli pratici."
             },
             {"role": "user", "content": testo}
-        ],
-        "temperature": 0.7
+        ]
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status() # Controlla se ci sono errori HTTP
+        # Passiamo l'URL esatto assicurandoci che non ci siano spazi
+        response = requests.post(url.strip(), headers=headers, json=payload)
+        response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
+    except requests.exceptions.MissingSchema:
+        return {"error_interno": "URL malformato. Assicurati che inizi con https://"}
+    except Exception as e:
         return {"error_interno": str(e)}
 
-# Interfaccia Utente
-domanda = st.text_input("Chiedi un consiglio (es: come gestire il riposo post-notte?):")
+# Interfaccia Streamlit
+domanda = st.text_input("Chiedi un consiglio:")
 
 if st.button("Chiedi al Coach 🚀"):
     if not API_KEY:
-        st.error("Chiave API mancante! Configura GROQ_API_KEY nei Secrets di Streamlit.")
+        st.error("Chiave API mancante nei Secrets!")
     elif domanda:
-        with st.spinner("Il Coach sta analizzando il tuo turno..."):
+        with st.spinner("Il Coach sta elaborando..."):
             res = chiedi_a_groq(domanda)
             
             if 'choices' in res:
                 risposta = res['choices'][0]['message']['content']
-                st.success("Consiglio del Coach:")
+                st.success("Consiglio:")
                 st.markdown(risposta)
-            elif "error_interno" in res:
-                st.error(f"Errore di connessione: {res['error_interno']}")
             else:
-                # Gestione errore specifico di Groq (es. modello non trovato o limite raggiunto)
-                errore_messaggio = res.get('error', {}).get('message', 'Errore sconosciuto')
-                st.error(f"Errore API: {errore_messaggio}")
+                errore = res.get('error_interno') or res.get('error', {}).get('message', 'Errore ignoto')
+                st.error(f"Errore: {errore}")
     else:
-        st.warning("Per favore, inserisci una domanda!")
-
-# Footer informativo
-st.divider()
-st.caption("Nota: I consigli di TurnoSano AI sono a scopo informativo e non sostituiscono il parere di un medico.")
+        st.warning("Inserisci una domanda!")
