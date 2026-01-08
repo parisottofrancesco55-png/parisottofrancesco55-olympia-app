@@ -6,54 +6,46 @@ from PyPDF2 import PdfReader
 # 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# 2. Gestione Autenticazione (Versione Aggiornata 2026)
-# Creiamo prima il dizionario delle credenziali
-credentials = {
-    "usernames": {
-        "anna2026": {
-            "name": "Infermiera Anna",
-            "password": "turno123" # Verrà hashata subito dopo
-        },
-        "francesco2026": {
-            "name": "Infermiere Francesco",
-            "password": "coach2026" # Verrà hashata subito dopo
-        }
-    }
-}
+# 2. Inizializzazione dati (In un'app reale questi dati starebbero su un Database)
+if "credentials" not in st.session_state:
+    st.session_state.credentials = {"usernames": {}}
 
-# Correzione TypeError: Il metodo hash_passwords ora richiede l'intero dizionario credentials
-stauth.Hasher.hash_passwords(credentials)
-
-# Inizializzazione Authenticate
+# Inizializzazione Authenticator
 authenticator = stauth.Authenticate(
-    credentials,
+    st.session_state.credentials,
     "turnosano_cookie",
     "auth_key",
     cookie_expiry_days=30
 )
 
-# Interfaccia Login
-# Nota: La versione 2026 non restituisce più 3 valori ma gestisce lo stato internamente
-authenticator.login()
+# 3. INTERFACCIA DI ACCESSO (Login / Registrazione)
+tab1, tab2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
 
-if st.session_state["authentication_status"] == False:
-    st.error('Username o Password errati')
-elif st.session_state["authentication_status"] == None:
-    st.warning('Inserisci le tue credenziali per accedere')
-elif st.session_state["authentication_status"]:
+with tab2:
+    # Modulo di Registrazione
+    try:
+        if authenticator.register_user('Registra nuovo account', pre_authorization=False):
+            st.success('Registrazione avvenuta con successo! Ora puoi accedere.')
+    except Exception as e:
+        st.error(f"Errore durante la registrazione: {e}")
+
+with tab1:
+    # Modulo di Login
+    authenticator.login()
+
+# 4. LOGICA DELL'APP (Area Riservata)
+if st.session_state["authentication_status"]:
     
-    # --- AREA RISERVATA ---
-    
-    # Inizializzazione Session State
+    # Inizializzazione Session State per l'AI
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "testo_turno" not in st.session_state:
         st.session_state.testo_turno = ""
 
-    # Sidebar
+    # Sidebar con Logout e Caricamento PDF
     with st.sidebar:
-        st.write(f"Benvenuto, **{st.session_state['name']}**")
-        authenticator.logout('Logout', 'sidebar')
+        st.write(f"Ciao, **{st.session_state['name']}** 👋")
+        authenticator.logout('Esci', 'sidebar')
         st.divider()
         file_pdf = st.file_uploader("📂 Carica Turno PDF", type="pdf")
         if file_pdf:
@@ -62,25 +54,20 @@ elif st.session_state["authentication_status"]:
             st.success("Turno analizzato!")
 
     st.title("🏥 TurnoSano AI")
-    
-    # --- SEZIONE AZIONI RAPIDE ---
-    st.write("### ⚡ Azioni Rapide")
+    st.write("Il tuo Coach AI per la gestione dei turni.")
+
+    # --- AZIONI RAPIDE ---
+    st.write("### ⚡ Suggerimenti Rapidi")
     c1, c2, c3 = st.columns(3)
-    
     input_rapido = None
-    if c1.button("🌙 SOS Turno Notte"): input_rapido = "Dammi una strategia per la notte."
+    if c1.button("🌙 SOS Turno Notte"): input_rapido = "Consigli per la notte."
     if c2.button("🥗 Alimentazione"): input_rapido = "Cosa mangiare in turno?"
-    if c3.button("🧘 Stress Relief"): input_rapido = "Esercizio rapido anti-stress."
+    if c3.button("🧘 Stress Relief"): input_rapido = "Esercizio relax rapido."
 
-    # --- LOGICA CHAT ---
-    # Assicurati che GROQ_API_KEY sia nei Secrets di Streamlit
-    try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-    except Exception as e:
-        st.error("Configura la GROQ_API_KEY nei Secrets!")
-        st.stop()
+    # --- CHAT CON GROQ ---
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-    prompt = st.chat_input("Chiedi al Coach...")
+    prompt = st.chat_input("Chiedi qualcosa al Coach...")
     if input_rapido: prompt = input_rapido
 
     if prompt:
@@ -98,9 +85,14 @@ elif st.session_state["authentication_status"]:
             risposta = response.choices[0].message.content
             st.session_state.messages.append({"role": "assistant", "content": risposta})
         except Exception as e:
-            st.error(f"Errore Groq: {e}")
+            st.error(f"Errore tecnico: {e}")
 
-    # Visualizzazione Messaggi
+    # Mostra i messaggi
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+
+elif st.session_state["authentication_status"] == False:
+    st.error('Username o Password errati')
+elif st.session_state["authentication_status"] == None:
+    st.info('Compila i campi per accedere o crea un nuovo account.')
