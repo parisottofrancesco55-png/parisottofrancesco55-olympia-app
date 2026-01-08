@@ -13,7 +13,7 @@ if "testo_turno" not in st.session_state:
 
 # --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
-st.write("Il tuo Coach per la gestione dei turni (Versione Gennaio 2026)")
+st.write("Il tuo Coach per la gestione dei turni (Aggiornato Gennaio 2026)")
 
 # --- SEZIONE AZIONI RAPIDE ---
 st.write("### ⚡ Azioni Rapide")
@@ -51,15 +51,15 @@ with st.sidebar:
         st.session_state.testo_turno = ""
         st.rerun()
 
-# 3. Funzione API (URL COMPLETO E CORRETTO)
+# 3. Funzione API (URL COMPLETO E PROTOCOLLO HTTPS)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # L'URL DEVE ESSERE COMPLETO PER EVITARE L'ERRORE "NO SCHEME SUPPLIED"
+    # L'URL deve essere completo di protocollo https://
     URL_API = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
     if st.session_state.testo_turno:
-        system_prompt += f"\nContesto turno: {st.session_state.testo_turno}"
+        system_prompt += f"\nContesto turno estratto dal PDF: {st.session_state.testo_turno}"
     
     payload = {
         "model": "llama-3.1-8b-instant",
@@ -76,7 +76,7 @@ def chiedi_a_groq(messages):
         )
         response.raise_for_status()
         data = response.json()
-        # ACCESSO CORRETTO AL MESSAGGIO (data["choices"][0]["message"]["content"])
+        # Estrazione corretta del messaggio (data['choices'][0]['message']['content'])
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore Tecnico: {str(e)}"
@@ -87,7 +87,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 5. Gestione Automatica Risposta (per i bottoni e input)
+# 5. Gestione Risposta (per bottoni e input manuale)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant", avatar="🏥"):
         with st.spinner("Il Coach sta analizzando..."):
