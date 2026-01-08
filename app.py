@@ -12,7 +12,7 @@ if "testo_turno" not in st.session_state:
 
 # --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
-st.write("Il tuo Coach per la gestione dei turni (Versione 2026)")
+st.write("Il tuo Coach per la gestione dei turni (Versione Gennaio 2026)")
 
 # --- SEZIONE AZIONI RAPIDE ---
 st.write("### ⚡ Azioni Rapide")
@@ -53,7 +53,7 @@ with st.sidebar:
 # 3. Funzione API (CORRETTA)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # L'URL DEVE iniziare con https://
+    # L'URL DEVE ESSERE COMPLETO
     URL_CORRETTO = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
@@ -70,7 +70,7 @@ def chiedi_a_groq(messages):
         response = requests.post(URL_CORRETTO, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=25)
         response.raise_for_status()
         data = response.json()
-        # Estrazione corretta del testo dalla risposta
+        # ACCESSO CORRETTO AI DATI
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore: {str(e)}"
