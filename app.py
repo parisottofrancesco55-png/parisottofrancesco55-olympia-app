@@ -5,60 +5,22 @@ from PyPDF2 import PdfReader
 # 1. Configurazione Pagina
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
+# Inizializzazione della memoria
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "testo_turno" not in st.session_state:
     st.session_state.testo_turno = ""
 
-# --- INTERFACCIA TITOLO ---
 st.title("🏥 TurnoSano AI")
-st.write("Il tuo Coach per la gestione dei turni (Versione 2026)")
+st.write("Coach per Infermieri (Versione 2026)")
 
-# --- SEZIONE AZIONI RAPIDE ---
-st.write("### ⚡ Azioni Rapide")
-col1, col2, col3 = st.columns(3)
-
-# Funzione per gestire l'invio dai bottoni
-def invia_messaggio_rapido(testo):
-    st.session_state.messages.append({"role": "user", "content": testo})
-    st.rerun()
-
-with col1:
-    if st.button("🌙 SOS Turno Notte"):
-        invia_messaggio_rapido("Dammi una strategia pratica per gestire il turno di notte di stasera e il riposo di domani.")
-with col2:
-    if st.button("🥗 Alimentazione"):
-        invia_messaggio_rapido("Cosa mi consigli di mangiare durante e dopo il turno per evitare spossatezza?")
-with col3:
-    if st.button("🧘 Stress in Reparto"):
-        invia_messaggio_rapido("Consigliami un esercizio di 2 minuti per scaricare la tensione durante il turno.")
-
-# 2. Sidebar per il PDF
-with st.sidebar:
-    st.header("📂 Carica Turno")
-    file_pdf = st.file_uploader("Trascina qui il tuo PDF", type="pdf")
-    if file_pdf:
-        try:
-            reader = PdfReader(file_pdf)
-            testo = "".join([page.extract_text() or "" for page in reader.pages])
-            st.session_state.testo_turno = testo
-            st.success("✅ Turno analizzato!")
-        except Exception as e:
-            st.error(f"Errore PDF: {e}")
-    
-    st.write("---")
-    if st.button("🗑️ Reset Chat"):
-        st.session_state.messages = []
-        st.session_state.testo_turno = ""
-        st.rerun()
-
-# 3. Funzione API (URL Corretto per Gennaio 2026)
+# --- FUNZIONE API ---
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
-    # URL completo con https:// obbligatorio
-    URL_API = "api.groq.com"
+    # URL BLINDATO CON HTTPS
+    url = "api.groq.com"
     
-    system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
+    system_prompt = "Sei TurnoSano AI, coach esperto per infermieri. Rispondi in italiano."
     if st.session_state.testo_turno:
         system_prompt += f"\nContesto turno: {st.session_state.testo_turno}"
     
@@ -69,35 +31,60 @@ def chiedi_a_groq(messages):
     }
     
     try:
-        response = requests.post(
-            URL_API, 
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, 
-            json=payload, 
-            timeout=25
-        )
+        response = requests.post(url, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=20)
         response.raise_for_status()
         data = response.json()
-        # Accesso corretto al contenuto della risposta
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return f"⚠️ Errore Tecnico: {str(e)}"
+        return f"⚠️ Errore API: {str(e)}"
 
-# 4. Visualizzazione Cronologia Chat
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("📂 Carica Turno")
+    file_pdf = st.file_uploader("Carica il tuo PDF", type="pdf")
+    if file_pdf:
+        reader = PdfReader(file_pdf)
+        testo_pdf = "".join([page.extract_text() or "" for page in reader.pages])
+        st.session_state.testo_turno = testo_pdf
+        st.success("✅ PDF Caricato")
+    
+    if st.button("🗑️ Reset Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+# --- INTERFACCIA: TASTI RAPIDI ---
+st.write("### ⚡ Suggerimenti Rapidi")
+col1, col2, col3 = st.columns(3)
+
+# Variabile per gestire l'input da pulsante
+input_utente = None
+
+with col1:
+    if st.button("🌙 SOS Turno Notte"):
+        input_utente = "Dammi una strategia per gestire il turno di notte e il riposo di domani."
+with col2:
+    if st.button("🥗 Alimentazione"):
+        input_utente = "Cosa mangiare durante il turno per non essere stanchi?"
+with col3:
+    if st.button("🧘 Stress Relief"):
+        input_utente = "Esercizio rapido per scaricare la tensione."
+
+# --- CHAT INPUT ---
+if prompt := st.chat_input("Scrivi qui la tua domanda..."):
+    input_utente = prompt
+
+# --- LOGICA DI RISPOSTA ---
+if input_utente:
+    # Aggiungi messaggio utente alla memoria
+    st.session_state.messages.append({"role": "user", "content": input_utente})
+    
+    # Richiesta immediata all'AI
+    with st.spinner("Il Coach sta analizzando..."):
+        risposta_ai = chiedi_a_groq(st.session_state.messages)
+        st.session_state.messages.append({"role": "assistant", "content": risposta_ai})
+
+# --- VISUALIZZAZIONE CHAT ---
 st.write("---")
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-
-# 5. Gestione Risposta Automatica (per Bottoni e Input manuale)
-if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-    with st.chat_message("assistant", avatar="🏥"):
-        with st.spinner("Il Coach sta analizzando..."):
-            risposta = chiedi_a_groq(st.session_state.messages)
-            st.markdown(risposta)
-            st.session_state.messages.append({"role": "assistant", "content": risposta})
-            st.rerun()
-
-# Chat Input Manuale
-if prompt := st.chat_input("Scrivi qui la tua domanda..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.rerun()
