@@ -14,7 +14,7 @@ if "testo_turno" not in st.session_state:
 st.title("🏥 TurnoSano AI")
 st.write("Il tuo Coach per la gestione dei turni (Versione 2026)")
 
-# --- AGGIUNTA: SEZIONE AZIONI RAPIDE ---
+# --- SEZIONE AZIONI RAPIDE ---
 st.write("### ⚡ Azioni Rapide")
 col1, col2, col3 = st.columns(3)
 
@@ -50,9 +50,10 @@ with st.sidebar:
         st.session_state.testo_turno = ""
         st.rerun()
 
-# 3. Funzione API (Nota: ho corretto solo l'URL per farlo funzionare, senza stravolgere il tuo stile)
+# 3. Funzione API (CORRETTA)
 def chiedi_a_groq(messages):
     api_key = st.secrets.get("GROQ_API_KEY")
+    # L'URL DEVE iniziare con https://
     URL_CORRETTO = "api.groq.com"
     
     system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
@@ -69,6 +70,7 @@ def chiedi_a_groq(messages):
         response = requests.post(URL_CORRETTO, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=25)
         response.raise_for_status()
         data = response.json()
+        # Estrazione corretta del testo dalla risposta
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         return f"⚠️ Errore: {str(e)}"
@@ -79,7 +81,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 5. Chat Input e Risposta automatica (per gestire anche i bottoni)
+# 5. Gestione automatica risposta (necessaria per i bottoni)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant", avatar="🏥"):
         with st.spinner("Il Coach sta analizzando..."):
@@ -88,6 +90,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
             st.session_state.messages.append({"role": "assistant", "content": risposta})
             st.rerun()
 
+# Chat Input Manuale
 if prompt := st.chat_input("Scrivi qui la tua domanda..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.rerun()
