@@ -2,78 +2,60 @@ import streamlit as st
 import requests
 from PyPDF2 import PdfReader
 
-# 1. Configurazione Pagina
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "testo_turno" not in st.session_state:
-    st.session_state.testo_turno = ""
-
+# Configurazione Pagina
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥")
 st.title("🏥 TurnoSano AI")
 
-# 2. Sidebar per il PDF
-with st.sidebar:
-    st.header("Comandi")
-    file_pdf = st.file_uploader("Carica Turno (PDF)", type="pdf")
-    if file_pdf:
-        try:
-            reader = PdfReader(file_pdf)
-            testo = "".join([page.extract_text() or "" for page in reader.pages])
-            st.session_state.testo_turno = testo
-            st.success("✅ Turno caricato")
-        except Exception as e:
-            st.error(f"Errore PDF: {e}")
-    if st.button("🗑️ Cancella Chat"):
-        st.session_state.messages = []
-        st.rerun()
+# Recupero Chiave Groq
+API_KEY = st.secrets.get("GROQ_API_KEY")
 
-# 3. Funzione API (URL Corretto 2026)
-def chiedi_a_groq(messages):
-    api_key = st.secrets.get("GROQ_API_KEY")
-    # URL ESATTO: Non deve finire con api.groq.com/ ma con il percorso completo
-    URL_CORRETTO = "api.groq.com"
+def chiedi_a_groq(testo_utente, contesto_pdf=""):
+    # URL DEFINITO IN MODO RIGIDO PER EVITARE ERRORI DI SCHEMA
+    base_url = "https://api.groq.com/openai/v1/chat/completions"
     
-    system_prompt = "Sei TurnoSano AI, un coach esperto per infermieri. Rispondi in italiano con consigli pratici."
-    if st.session_state.testo_turno:
-        system_prompt += f"\nContesto turno estratto dal PDF: {st.session_state.testo_turno}"
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
     
+    prompt_sistema = "Sei TurnoSano AI, un coach esperto per infermieri. "
+    if contesto_pdf:
+        prompt_sistema += f"Dati del turno: {contesto_pdf}. "
+    prompt_sistema += "Rispondi in italiano."
+
     payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": system_prompt}] + messages,
-        "temperature": 0.7
+        "model": "llama-3.1-8b-instant", # Modello supportato nel 2026
+        "messages": [
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": testo_utente}
+        ]
     }
     
     try:
-        response = requests.post(
-            URL_CORRETTO, 
-            headers={
-                "Authorization": f"Bearer {api_key}", 
-                "Content-Type": "application/json"
-            }, 
-            json=payload, 
-            timeout=25
-        )
+        # .strip() rimuove eventuali spazi o invii invisibili
+        response = requests.post(base_url.strip(), headers=headers, json=payload, timeout=30)
         response.raise_for_status()
-        data = response.json()
-        # Estrazione corretta del testo dalla risposta
-        return data["choices"][0]["message"]["content"]
+        return response.json()
     except Exception as e:
-        return f"⚠️ Errore Tecnico: {str(e)}"
+        return {"error_tecnico": str(e)}
 
-# 4. Visualizzazione Chat
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# --- INTERFACCIA ---
+file_pdf = st.sidebar.file_uploader("Carica turno PDF", type="pdf")
+testo_estratto = ""
 
-# 5. Chat Input
-if prompt := st.chat_input("Scrivi qui la tua domanda..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    
-    with st.chat_message("assistant", avatar="🏥"):
-        with st.spinner("Il Coach sta analizzando..."):
-            risposta = chiedi_a_groq(st.session_state.messages)
-            st.markdown(risposta)
-            st.session_state.messages.append({"role": "assistant", "content": risposta})
+if file_pdf:
+    reader = PdfReader(file_pdf)
+    for page in reader.pages:
+        testo_estratto += page.extract_text() + "\n"
+    st.sidebar.success("PDF Letto!")
+
+domanda = st.text_input("Fai una domanda:")
+
+if st.button("Invia 🚀"):
+    if domanda and API_KEY:
+        with st.spinner("Risposta in corso..."):
+            res = chiedi_a_groq(domanda, testo_estratto)
+            if 'choices' in res:
+                st.markdown(res['choices'][0]['message']['content'])
+            else:
+                st.error(f"Errore: {res.get('error_tecnico', 'Errore API')}")
