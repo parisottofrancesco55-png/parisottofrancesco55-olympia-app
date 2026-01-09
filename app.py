@@ -4,27 +4,19 @@ import streamlit_authenticator as stauth
 from groq import Groq
 from PyPDF2 import PdfReader
 
-# 1. CONFIGURAZIONE PAGINA (Deve essere la primissima istruzione Streamlit)
+# 1. QUESTA DEVE ESSERE SEMPRE LA PRIMA RIGA DI CODICE STREAMLIT
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# 2. DESIGN "APP VERA" (CSS per Mobile e UI pulita)
+# 2. ORA PUOI METTERE IL DESIGN CSS
 st.markdown("""
     <style>
-        /* Nasconde elementi Streamlit per look nativo */
+        /* Nasconde il menu Streamlit per farla sembrare un'app nativa */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
-        
-        /* Adatta l'app ai bordi dello schermo */
-        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-        
-        /* Stile per i messaggi chat */
-        .stChatMessage { border-radius: 15px; margin-bottom: 10px; }
-        
-        /* Pulsanti personalizzati */
-        .stButton>button { border-radius: 20px; width: 100%; }
+        .stApp { bottom: 0; }
     </style>
-""", unsafe_allow_stdio=True)
+""", unsafe_allow_html=True)
 
 # --- 3. CONNESSIONE SUPABASE ---
 try:
@@ -79,6 +71,7 @@ if not st.session_state.get("authentication_status"):
 
     with tab2:
         try:
+            # register_user per versione 2026
             new_user = authenticator.register_user(pre_authorized=None)
             if new_user:
                 username, info = new_user
@@ -93,7 +86,7 @@ if not st.session_state.get("authentication_status"):
         if st.session_state.get("authentication_status"):
             st.rerun()
 
-# --- 7. AREA RISERVATA (LOGGATO) ---
+# --- 7. AREA RISERVATA ---
 else:
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -101,7 +94,7 @@ else:
         st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.write(f"In servizio: **{st.session_state['name']}** 👋")
+        st.write(f"Benvenuto, **{st.session_state['name']}** 👋")
         if authenticator.logout('Esci', 'sidebar'):
             st.rerun()
         st.divider()
@@ -111,41 +104,15 @@ else:
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
             st.success("Turno analizzato!")
 
-    # --- DASHBOARD ---
     st.title("🏥 TurnoSano AI")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Stato Recupero", "75%", "+5%")
-    with col2:
-        num_c = len([m for m in st.session_state.messages if m["role"] == "assistant"])
-        st.metric("Consigli Ricevuti", num_c)
-    with col3:
-        status_turno = "✅ Caricato" if st.session_state.testo_turno else "❌ Mancante"
-        st.write(f"**Turno:** {status_turno}")
-
-    st.divider()
-
-    # --- TASTI RAPIDI ---
-    st.write("### ⚡ Suggerimenti Rapidi")
-    r1, r2, r3 = st.columns(3)
-    prompt_rapido = None
-    if r1.button("🌙 SOS Notte"): prompt_rapido = "Strategia per turno di notte."
-    if r2.button("🥗 Alimentazione"): prompt_rapido = "Cosa mangiare in turno?"
-    if r3.button("🧘 Stress Relief"): prompt_rapido = "Esercizio relax rapido."
-
-    # --- CHAT CON GROQ ---
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("Configura la GROQ_API_KEY!")
+        st.error("Configura la GROQ_API_KEY nei Secrets!")
         st.stop()
 
-    prompt = st.chat_input("Chiedi al Coach...")
-    if prompt_rapido:
-        prompt = prompt_rapido
-
-    if prompt:
+    if prompt := st.chat_input("Chiedi al Coach..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         sys_msg = f"Sei TurnoSano AI, coach per l'infermiere {st.session_state['name']}."
