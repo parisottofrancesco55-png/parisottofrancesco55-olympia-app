@@ -11,9 +11,10 @@ st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
 st.markdown("""
     <style>
-        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; height: 3em; background-color: #007bff; color: white; }
-        .stChatMessage { border-radius: 15px; }
+        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; height: 3em; }
+        .stChatMessage { border-radius: 15px; border: 1px solid #f0f2f6; }
         [data-testid="stExpander"] { border-radius: 15px; background-color: #f8f9fa; }
+        .stSlider { padding-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -87,20 +88,18 @@ if not st.session_state.get("authentication_status"):
                     st.success('Registrazione completata! Accedi ora.')
                     st.session_state.config = carica_credenziali()
         except Exception as e: st.error(f"Errore: {e}")
-            
     with t1:
         authenticator.login()
         if st.session_state.get("authentication_status"): st.rerun()
 
 else:
     # --- 5. DASHBOARD (LOGGATO) ---
-    if "messages" not in st.session_state: 
-        st.session_state.messages = []
-    if "testo_turno" not in st.session_state: 
-        st.session_state.testo_turno = ""
+    if "messages" not in st.session_state: st.session_state.messages = []
+    if "testo_turno" not in st.session_state: st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.write(f"Ciao, **{st.session_state['name']}**")
+        st.title("👨‍⚕️ Area Personale")
+        st.write(f"In servizio: **{st.session_state['name']}**")
         if authenticator.logout('Esci', 'sidebar'): 
             st.session_state.messages = []
             st.rerun()
@@ -111,17 +110,19 @@ else:
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
             st.success("Turno analizzato!")
 
-    st.title("🏥 Dashboard Benessere")
+    st.title("🏥 TurnoSano AI Dashboard")
 
-    with st.expander("📝 Registra il tuo stato di oggi"):
+    # REGISTRAZIONE DATI
+    with st.expander("📝 Diario del Benessere - Registra oggi"):
         c1, c2 = st.columns(2)
-        f_val = c1.slider("Fatica (1-10)", 1, 10, 5)
-        s_val = c2.number_input("Ore di Sonno", 0.0, 20.0, 7.0, step=0.5)
-        if st.button("Salva Dati"):
+        f_val = c1.slider("Livello Fatica (1-10)", 1, 10, 5)
+        s_val = c2.number_input("Ore di Sonno effettive", 0.0, 20.0, 7.0, step=0.5)
+        if st.button("💾 Salva Dati"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
                 st.success("Dati salvati!")
                 st.rerun()
 
+    # GRAFICI
     df = carica_dati_benessere(st.session_state['username'])
     if not df.empty:
         col1, col2 = st.columns(2)
@@ -130,22 +131,31 @@ else:
         with col2:
             st.plotly_chart(px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno"), use_container_width=True)
     else:
-        st.info("Registra i tuoi dati per vedere i grafici!")
+        st.info("Registra i tuoi dati per attivare il monitoraggio grafico.")
 
-    # --- 6. AI COACH ---
+    # --- 6. COACH AI (GROQ) CON COMANDI RAPIDI ---
     st.divider()
-    st.subheader("💬 Coach AI")
+    st.subheader("💬 Coach AI Benessere")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
         def chiedi_ai(prompt):
             st.session_state.messages.append({"role": "user", "content": prompt})
-            ctx = f"Sei TurnoSano AI. Utente: {st.session_state['name']}."
+            ctx = f"Sei TurnoSano AI, un coach empatico per infermieri. Utente: {st.session_state['name']}."
             if st.session_state.testo_turno:
-                ctx += f" Turno: {st.session_state.testo_turno[:500]}"
+                ctx += f" Contesto turno: {st.session_state.testo_turno[:800]}"
             
-            res = client.chat.completions.create(
-                messages=[{"role": "system", "content": ctx}] + st.session_state.messages,
-                model="llama-3.1-8b-instant",
-            )
+            try:
+                res = client.chat.completions.create(
+                    messages=[{"role": "system", "content": ctx}] + st.session_state.messages,
+                    model="llama-3.1-8b-instant",
+                )
+                st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
+            except Exception as e: st.error(f"Errore AI: {e}")
+
+        # TASTI RAPIDI
+        tr1, tr2, tr3 = st.columns(3)
+        prompt_rapido = None
+        if tr1.button("🌙 SOS Notte"): prompt_rapido = "Consigli pratici per affrontare il prossimo turno di notte."
+        if tr2.button("🥗 Dieta Turnista"): prompt_rapido = "C
