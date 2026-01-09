@@ -1,22 +1,32 @@
-st.markdown("""
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
-    <style>
-        /* Nasconde il menu Streamlit per farla sembrare un'app nativa */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        .stApp { bottom: 0; }
-    </style>
-""", unsafe_allow_stdio=True)
-
 import streamlit as st
 from supabase import create_client, Client
 import streamlit_authenticator as stauth
 from groq import Groq
 from PyPDF2 import PdfReader
 
-# --- 1. CONNESSIONE SUPABASE ---
-# Assicurati di avere queste chiavi nei "Secrets" di Streamlit
+# 1. CONFIGURAZIONE PAGINA (Deve essere la primissima istruzione Streamlit)
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
+
+# 2. DESIGN "APP VERA" (CSS per Mobile e UI pulita)
+st.markdown("""
+    <style>
+        /* Nasconde elementi Streamlit per look nativo */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        /* Adatta l'app ai bordi dello schermo */
+        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+        
+        /* Stile per i messaggi chat */
+        .stChatMessage { border-radius: 15px; margin-bottom: 10px; }
+        
+        /* Pulsanti personalizzati */
+        .stButton>button { border-radius: 20px; width: 100%; }
+    </style>
+""", unsafe_allow_stdio=True)
+
+# --- 3. CONNESSIONE SUPABASE ---
 try:
     URL_DB = st.secrets["SUPABASE_URL"]
     KEY_DB = st.secrets["SUPABASE_KEY"]
@@ -25,9 +35,8 @@ except Exception as e:
     st.error("Errore: Chiavi Supabase non trovate nei Secrets.")
     st.stop()
 
-# --- 2. FUNZIONI DATABASE ---
+# --- 4. FUNZIONI DATABASE ---
 def carica_credenziali():
-    """Recupera gli utenti salvati su Supabase"""
     try:
         res = supabase.table("profiles").select("*").execute()
         db_users = res.data
@@ -42,7 +51,6 @@ def carica_credenziali():
         return {"usernames": {}}
 
 def salva_nuovo_utente(username, name, password_hash):
-    """Salva i dati dell'iscrizione su Supabase"""
     try:
         supabase.table("profiles").insert({
             "username": username,
@@ -54,10 +62,7 @@ def salva_nuovo_utente(username, name, password_hash):
         st.error(f"Errore salvataggio DB: {e}")
         return False
 
-# --- 3. CONFIGURAZIONE AUTH ---
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
-
-# Carichiamo gli utenti dal database all'avvio
+# --- 5. CONFIGURAZIONE AUTH ---
 if "config" not in st.session_state:
     st.session_state.config = carica_credenziali()
 
@@ -68,20 +73,17 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# --- 4. INTERFACCIA LOGIN / ISCRIZIONE ---
+# --- 6. INTERFACCIA LOGIN / ISCRIZIONE ---
 if not st.session_state.get("authentication_status"):
     tab1, tab2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
 
     with tab2:
         try:
-            # Il modulo di registrazione di streamlit-authenticator
-            # NOTA: Nelle versioni 2026 i parametri possono variare, questa è la forma stabile
             new_user = authenticator.register_user(pre_authorized=None)
             if new_user:
                 username, info = new_user
                 if salva_nuovo_utente(username, info['name'], info['password']):
                     st.success('Registrazione completata! Ora puoi accedere.')
-                    # Aggiorna la memoria locale dell'app senza riavviare
                     st.session_state.config = carica_credenziali()
         except Exception as e:
             st.error(f"Errore registrazione: {e}")
@@ -89,18 +91,17 @@ if not st.session_state.get("authentication_status"):
     with tab1:
         authenticator.login()
         if st.session_state.get("authentication_status"):
-            st.rerun() # Entra nell'app dopo il login
+            st.rerun()
 
-# --- 5. AREA RISERVATA (LOGGATO) ---
+# --- 7. AREA RISERVATA (LOGGATO) ---
 else:
-    # Inizializzazione sessioni AI
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "testo_turno" not in st.session_state:
         st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.write(f"Benvenuto, **{st.session_state['name']}** 👋")
+        st.write(f"In servizio: **{st.session_state['name']}** 👋")
         if authenticator.logout('Esci', 'sidebar'):
             st.rerun()
         st.divider()
@@ -110,16 +111,41 @@ else:
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
             st.success("Turno analizzato!")
 
+    # --- DASHBOARD ---
     st.title("🏥 TurnoSano AI")
     
-    # Integrazione Groq
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Stato Recupero", "75%", "+5%")
+    with col2:
+        num_c = len([m for m in st.session_state.messages if m["role"] == "assistant"])
+        st.metric("Consigli Ricevuti", num_c)
+    with col3:
+        status_turno = "✅ Caricato" if st.session_state.testo_turno else "❌ Mancante"
+        st.write(f"**Turno:** {status_turno}")
+
+    st.divider()
+
+    # --- TASTI RAPIDI ---
+    st.write("### ⚡ Suggerimenti Rapidi")
+    r1, r2, r3 = st.columns(3)
+    prompt_rapido = None
+    if r1.button("🌙 SOS Notte"): prompt_rapido = "Strategia per turno di notte."
+    if r2.button("🥗 Alimentazione"): prompt_rapido = "Cosa mangiare in turno?"
+    if r3.button("🧘 Stress Relief"): prompt_rapido = "Esercizio relax rapido."
+
+    # --- CHAT CON GROQ ---
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
         st.error("Configura la GROQ_API_KEY!")
         st.stop()
 
-    if prompt := st.chat_input("Chiedi al Coach..."):
+    prompt = st.chat_input("Chiedi al Coach...")
+    if prompt_rapido:
+        prompt = prompt_rapido
+
+    if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         sys_msg = f"Sei TurnoSano AI, coach per l'infermiere {st.session_state['name']}."
