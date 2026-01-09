@@ -1,3 +1,14 @@
+st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
+    <style>
+        /* Nasconde il menu Streamlit per farla sembrare un'app nativa */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stApp { bottom: 0; }
+    </style>
+""", unsafe_allow_stdio=True)
+
 import streamlit as st
 from supabase import create_client, Client
 import streamlit_authenticator as stauth
