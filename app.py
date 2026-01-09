@@ -7,14 +7,29 @@ from PyPDF2 import PdfReader
 # 1. QUESTA DEVE ESSERE SEMPRE LA PRIMA RIGA DI CODICE STREAMLIT
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# 2. ORA PUOI METTERE IL DESIGN CSS
+# 2. DESIGN "APP VERA" (PWA e Mobile Optimization)
 st.markdown("""
+    <!-- Metadati per rendere l'app installabile su Smartphone -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    
     <style>
-        /* Nasconde il menu Streamlit per farla sembrare un'app nativa */
+        /* Nasconde il menu Streamlit per look nativo */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
+        
+        /* Ottimizzazione spazio per Mobile */
         .stApp { bottom: 0; }
+        .block-container { padding-top: 2rem; }
+        
+        /* Pulsanti stile App Moderna */
+        .stButton>button {
+            border-radius: 20px;
+            font-weight: bold;
+            height: 3em;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,7 +86,6 @@ if not st.session_state.get("authentication_status"):
 
     with tab2:
         try:
-            # register_user per versione 2026
             new_user = authenticator.register_user(pre_authorized=None)
             if new_user:
                 username, info = new_user
@@ -86,7 +100,7 @@ if not st.session_state.get("authentication_status"):
         if st.session_state.get("authentication_status"):
             st.rerun()
 
-# --- 7. AREA RISERVATA ---
+# --- 7. AREA RISERVATA (LOGGATO) ---
 else:
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -94,7 +108,7 @@ else:
         st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.write(f"Benvenuto, **{st.session_state['name']}** 👋")
+        st.write(f"In servizio: **{st.session_state['name']}** 👋")
         if authenticator.logout('Esci', 'sidebar'):
             st.rerun()
         st.divider()
@@ -119,6 +133,7 @@ else:
         if st.session_state.testo_turno:
             sys_msg += f"\nContesto turno: {st.session_state.testo_turno}"
         
+        # Chiamata Groq aggiornata per il 2026
         res = client.chat.completions.create(
             messages=[{"role": "system", "content": sys_msg}] + st.session_state.messages,
             model="llama-3.1-8b-instant",
