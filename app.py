@@ -40,12 +40,13 @@ def carica_credenziali():
 
 def salva_nuovo_utente(username, name, password_hash):
     try:
-        supabase.table("profiles").insert({"username": username, "name": name, "password": password_hash}).execute()
+        supabase.table("profiles").insert({"username": str(username), "name": str(name), "password": str(password_hash)}).execute()
     except Exception as e: st.error(f"Errore registrazione DB: {e}")
 
 def salva_benessere(username, fatica, sonno):
     try:
-        # PULIZIA DATI PER EVITARE ERRORE 405 JSON
+        # PROTEZIONE DEFINITIVA ERRORE 405 JSON
+        # Convertiamo esplicitamente in tipi nativi Python
         payload = {
             "user_id": str(username),
             "fatica": int(fatica),
@@ -78,13 +79,13 @@ if not st.session_state.get("authentication_status"):
     t1, t2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
     with t2:
         try:
-            # CORREZIONE VALUEERROR: Gestione sicura del risultato registrazione
+            # Gestione sicura della registrazione
             res_reg = authenticator.register_user(pre_authorized=None)
             if res_reg:
                 username, user_info = res_reg
-                if username: # Procede solo se l'utente ha compilato i campi
+                if username:
                     salva_nuovo_utente(username, user_info['name'], user_info['password'])
-                    st.success('Registrazione completata! Ora puoi accedere dalla tab Accedi.')
+                    st.success('Registrazione completata! Accedi ora dalla tab Accedi.')
                     st.session_state.config = carica_credenziali()
         except Exception as e:
             st.error(f"Errore: {e}")
@@ -118,9 +119,9 @@ else:
         c1, c2 = st.columns(2)
         f_val = c1.slider("Livello di Fatica (1-10)", 1, 10, 5)
         s_val = c2.number_input("Ore di Sonno fatte", 0.0, 15.0, 7.0)
-        if st.button("Salva Dati"):
+        if st.button("Salva Benessere"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
-                st.success("Dati salvati!")
+                st.success("Dati registrati!")
                 st.rerun()
 
     # --- ANALISI GRAFICA ---
@@ -128,13 +129,13 @@ else:
     if not df.empty:
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            fig_f = px.line(df, x='created_at', y='fatica', title="Trend Fatica", markers=True)
+            fig_f = px.line(df, x='created_at', y='fatica', title="Andamento Fatica", markers=True)
             st.plotly_chart(fig_f, use_container_width=True)
         with col_g2:
-            fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno")
+            fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Ore Sonno")
             st.plotly_chart(fig_s, use_container_width=True)
     else:
-        st.info("Registra il tuo stato per vedere i grafici.")
+        st.info("Nessun dato presente. Inizia a registrare per vedere i grafici.")
 
     # --- COACH AI (GROQ) ---
     st.divider()
@@ -143,14 +144,14 @@ else:
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("Manca GROQ_API_KEY nei Secrets!")
+        st.error("GROQ_API_KEY non trovata nei Secrets!")
         st.stop()
 
-    def chiedi_coach(testo):
+    def chiedi_ai(testo):
         st.session_state.messages.append({"role": "user", "content": testo})
-        context = f"Sei TurnoSano AI. Utente: {st.session_state['name']}."
+        context = f"Sei TurnoSano AI, un coach per infermieri. Utente: {st.session_state['name']}."
         if st.session_state.testo_turno:
-            context += f"\nContesto Turno: {st.session_state.testo_turno[:1000]}"
+            context += f"\nTurno caricato: {st.session_state.testo_turno[:1000]}"
         
         try:
             res = client.chat.completions.create(
@@ -159,21 +160,22 @@ else:
             )
             st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
         except Exception as e:
-            st.error(f"Errore AI: {e}")
+            st.error(f"Errore Coach AI: {e}")
 
     # Tasti Rapidi
     tr1, tr2, tr3 = st.columns(3)
-    p_rapido = None
-    if tr1.button("🌙 SOS Notte"): p_rapido = "Consigli per turno di notte."
-    if tr2.button("🥗 Dieta"): p_rapido = "Cosa mangiare stasera?"
-    if tr3.button("🗑️ Reset Chat"): 
+    tasto_prompt = None
+    if tr1.button("🌙 SOS Notte"): tasto_prompt = "Dammi consigli per affrontare il turno di notte."
+    if tr2.button("🥗 Alimentazione"): tasto_prompt = "Cosa mangiare durante i turni per avere energia?"
+    if tr3.button("🗑️ Pulisci Chat"): 
         st.session_state.messages = []
         st.rerun()
 
-    user_input = st.chat_input("Chiedi al Coach...")
-    final_query = user_input or p_rapido
-    if final_query:
-        chiedi_coach(final_query)
+    user_input = st.chat_input("Scrivi al tuo coach...")
+    final_input = user_input or tasto_prompt
+    
+    if final_input:
+        chiedi_ai(final_input)
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
