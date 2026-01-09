@@ -15,10 +15,10 @@ try:
     KEY_DB = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL_DB, KEY_DB)
 except Exception as e:
-    st.error("Errore: Credenziali Supabase non trovate nei Secrets!")
+    st.error("Errore Secrets Supabase!")
     st.stop()
 
-# --- 3. FUNZIONI DATABASE ---
+# --- 3. FUNZIONI DB ---
 def carica_credenziali():
     try:
         res = supabase.table("profiles").select("*").execute()
@@ -28,23 +28,18 @@ def carica_credenziali():
         return credenziali
     except: return {"usernames": {}}
 
-def salva_nuovo_utente(username, name, password_hash):
+def salva_nuovo_utente(u, n, p):
     try:
-        supabase.table("profiles").insert({"username": str(username), "name": str(name), "password": str(password_hash)}).execute()
+        supabase.table("profiles").insert({"username": str(u), "name": str(n), "password": str(p)}).execute()
     except: pass
 
 def salva_benessere(username, fatica, sonno):
     try:
-        # PROTEZIONE 405: Trasformiamo in numeri puri Python
-        payload = {
-            "user_id": str(username),
-            "fatica": float(fatica),
-            "ore_sonno": float(sonno)
-        }
+        payload = {"user_id": str(username), "fatica": float(fatica), "ore_sonno": float(sonno)}
         supabase.table("wellness").insert(payload).execute()
         return True
     except Exception as e:
-        st.error(f"Errore salvataggio: {e}")
+        st.error(f"Errore DB: {e}")
         return False
 
 def carica_dati_benessere(username):
@@ -76,7 +71,7 @@ if not st.session_state.get("authentication_status"):
     with t1:
         auth.login()
 else:
-    # --- 5. AREA RISERVATA ---
+    # --- 5. DASHBOARD ---
     if "messages" not in st.session_state: st.session_state.messages = []
     if "testo_turno" not in st.session_state: st.session_state.testo_turno = ""
 
@@ -88,4 +83,61 @@ else:
         pdf = st.file_uploader("📂 Carica Turno PDF", type="pdf")
         if pdf:
             reader = PdfReader(pdf)
-            st.session_state.testo_turno = "".
+            st.session_state.testo_turno = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
+            st.success("Turno analizzato!")
+
+    st.title("🏥 TurnoSano AI")
+
+    with st.expander("📝 Diario del Benessere"):
+        c1, c2 = st.columns(2)
+        f_val = c1.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = c2.number_input("Ore di Sonno", 0.0, 20.0, 7.0, step=0.5)
+        if st.button("💾 Salva Dati"):
+            if salva_benessere(st.session_state['username'], f_val, s_val):
+                st.success("Dati registrati!")
+                st.rerun()
+
+    df = carica_dati_benessere(st.session_state['username'])
+    if not df.empty:
+        col1, col2 = st.columns(2)
+        with col1: st.plotly_chart(px.line(df, x='created_at', y='fatica', title="Trend Fatica", markers=True), use_container_width=True)
+        with col2: st.plotly_chart(px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno"), use_container_width=True)
+    else:
+        st.info("Registra i tuoi dati per vedere i grafici.")
+
+    # --- 6. COACH AI ---
+    st.divider()
+    st.subheader("💬 Coach AI Benessere")
+    
+    if "GROQ_API_KEY" in st.secrets:
+        try:
+            client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+            
+            def chiedi_coach(p):
+                st.session_state.messages.append({"role": "user", "content": p})
+                ctx = f"Sei TurnoSano AI, coach per infermieri. Utente: {st.session_state['name']}."
+                if st.session_state.testo_turno: ctx += f" Turno: {st.session_state.testo_turno[:500]}"
+                res = client.chat.completions.create(
+                    messages=[{"role": "system", "content": ctx}] + st.session_state.messages,
+                    model="llama-3.1-8b-instant"
+                )
+                st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
+
+            # Comandi Rapidi
+            r1, r2, r3 = st.columns(3)
+            q_rapida = None
+            if r1.button("🌙 SOS Notte"): q_rapida = "Consigli per il turno di notte"
+            if r2.button("🥗 Dieta"): q_rapida = "Cosa mangiare in turno?"
+            if r3.button("🗑️ Reset Chat"):
+                st.session_state.messages = []
+                st.rerun()
+
+            chat_in = st.chat_input("Chiedi al coach...")
+            final_q = chat_in or q_rapida
+            if final_q: chiedi_coach(final_q)
+
+            for m in st.session_state.messages:
+                with st.chat_message(m["role"]): st.markdown(m["content"])
+        except Exception as e: st.error(f"Errore AI: {e}")
+    else:
+        st.warning("Configura GROQ_API_KEY nei Secrets.")
