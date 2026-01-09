@@ -9,12 +9,12 @@ import streamlit_authenticator as stauth
 # --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# CSS Personalizzato
+# CSS per rendere l'interfaccia più professionale
 st.markdown("""
     <style>
-        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; }
+        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; height: 3em; background-color: #007bff; color: white; }
         .stChatMessage { border-radius: 15px; }
-        .stSlider { padding-top: 10px; }
+        [data-testid="stExpander"] { border-radius: 15px; background-color: #f8f9fa; border: 1px solid #dee2e6; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -24,7 +24,7 @@ try:
     KEY_DB = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL_DB, KEY_DB)
 except Exception as e:
-    st.error("Errore: Credenziali Supabase mancanti nei Secrets!")
+    st.error("Errore: Credenziali Supabase non trovate nei Secrets!")
     st.stop()
 
 # --- 3. FUNZIONI DATABASE ---
@@ -48,21 +48,18 @@ def salva_nuovo_utente(username, name, password_hash):
 
 def salva_benessere(username, fatica, sonno):
     """
-    Funzione critica: converte i dati in tipi Python puri 
-    per evitare l'errore 'JSON could not be generated' (405).
+    Risolve l'errore 405 forzando i tipi di dato Python nativi.
     """
     try:
-        # PULIZIA DATI
-        dati_puliti = {
+        payload = {
             "user_id": str(username),
             "fatica": int(fatica),
             "ore_sonno": float(sonno)
         }
-        # INVIO
-        supabase.table("wellness").insert(dati_puliti).execute()
+        supabase.table("wellness").insert(payload).execute()
         return True
     except Exception as e:
-        st.error(f"Errore database: {e}")
+        st.error(f"Errore durante il salvataggio: {e}")
         return False
 
 def carica_dati_benessere(username):
@@ -82,7 +79,6 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# Pagina di Login/Registrazione
 if not st.session_state.get("authentication_status"):
     t1, t2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
     with t2:
@@ -92,102 +88,94 @@ if not st.session_state.get("authentication_status"):
                 username, user_info = res_reg
                 if username:
                     salva_nuovo_utente(username, user_info['name'], user_info['password'])
-                    st.success('Registrazione avvenuta! Ora puoi accedere.')
+                    st.success('Account creato! Ora puoi accedere.')
                     st.session_state.config = carica_credenziali()
-        except Exception as e: st.error(f"Errore: {e}")
+        except Exception as e: st.error(f"Errore registrazione: {e}")
             
     with t1:
         authenticator.login()
         if st.session_state.get("authentication_status"): st.rerun()
 
 else:
-    # --- 5. AREA RISERVATA (LOGGATO) ---
+    # --- 5. DASHBOARD PRINCIPALE ---
     if "messages" not in st.session_state: st.session_state.messages = []
     if "testo_turno" not in st.session_state: st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.title("👨‍⚕️ Menù")
-        st.write(f"In servizio: **{st.session_state['name']}**")
-        if authenticator.logout('Esci', 'sidebar'): 
+        st.write(f"Utente: **{st.session_state['name']}**")
+        if authenticator.logout('Disconnetti', 'sidebar'): 
             st.session_state.messages = []
             st.rerun()
         st.divider()
-        file_pdf = st.file_uploader("📂 Carica Turno (PDF)", type="pdf")
+        file_pdf = st.file_uploader("📂 Carica il tuo Turno (PDF)", type="pdf")
         if file_pdf:
             reader = PdfReader(file_pdf)
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
-            st.success("Turno analizzato!")
+            st.success("Turno analizzato con successo!")
 
     st.title("🏥 TurnoSano AI")
-    st.write("Monitora il tuo benessere e ottimizza i tuoi turni.")
+    st.info("Benvenuto! Registra il tuo stato fisico per monitorare il tuo benessere lavorativo.")
 
-    # --- REGISTRAZIONE STATO FISICO ---
-    with st.expander("📝 Come stai oggi? Registra i tuoi parametri"):
+    # REGISTRAZIONE DATI (Risoluzione Errore 405)
+    with st.expander("📝 Registra come stai oggi"):
         c1, c2 = st.columns(2)
-        with c1:
-            f_val = st.slider("Livello di Fatica (1=Riposato, 10=Esausto)", 1, 10, 5)
-        with c2:
-            s_val = st.number_input("Ore di Sonno effettive", 0.0, 16.0, 7.0, step=0.5)
-        
-        if st.button("💾 Salva Dati Giornalieri"):
+        f_val = c1.slider("Grado di Fatica (1-10)", 1, 10, 5)
+        s_val = c2.number_input("Ore di Sonno (es. 7.5)", 0.0, 20.0, 7.0, step=0.5)
+        if st.button("💾 Salva nel Diario"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
-                st.success("Dati salvati con successo!")
+                st.success("Dati memorizzati correttamente!")
                 st.rerun()
 
-    # --- VISUALIZZAZIONE DATI ---
+    # VISUALIZZAZIONE GRAFICI
     df = carica_dati_benessere(st.session_state['username'])
     if not df.empty:
-        st.subheader("📈 Il tuo andamento")
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            fig_f = px.line(df, x='created_at', y='fatica', title="Fatica nel tempo", markers=True, color_discrete_sequence=['#FF4B4B'])
+            fig_f = px.line(df, x='created_at', y='fatica', title="Andamento Fatica", markers=True)
             st.plotly_chart(fig_f, use_container_width=True)
         with col_g2:
-            fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Ore di Sonno", color_discrete_sequence=['#00CC96'])
+            fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Ore Sonno per Giorno")
             st.plotly_chart(fig_s, use_container_width=True)
     else:
-        st.info("Non ci sono ancora dati. Registra la tua prima giornata sopra!")
+        st.warning("Nessun dato disponibile. Inizia salvando il tuo primo stato fisico!")
 
-    # --- COACH AI (GROQ) ---
+    # --- 6. COACH AI (GROQ) ---
     st.divider()
-    st.subheader("💬 Coach AI Benessere")
+    st.subheader("💬 Coach AI per Infermieri")
 
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("Errore: Chiave API Groq non configurata correttamente.")
+        st.error("GROQ_API_KEY non trovata!")
         st.stop()
 
-    def chiedi_coach(prompt_utente):
-        st.session_state.messages.append({"role": "user", "content": prompt_utente})
-        # Sistema di istruzioni
-        istruzioni = "Sei TurnoSano AI, un coach esperto per infermieri turnisti. Sii empatico e pratico."
+    def chiedi_coach(testo):
+        st.session_state.messages.append({"role": "user", "content": testo})
+        istruzioni = f"Sei TurnoSano AI, un coach esperto nel benessere degli infermieri. Utente: {st.session_state['name']}."
         if st.session_state.testo_turno:
-            istruzioni += f"\nContesto turno dell'utente: {st.session_state.testo_turno[:1000]}"
+            istruzioni += f"\nContesto Turno: {st.session_state.testo_turno[:1000]}"
         
         try:
-            risposta = client.chat.completions.create(
+            res = client.chat.completions.create(
                 messages=[{"role": "system", "content": istruzioni}] + st.session_state.messages,
                 model="llama-3.1-8b-instant",
             )
-            st.session_state.messages.append({"role": "assistant", "content": risposta.choices[0].message.content})
-        except Exception as e:
-            st.error(f"Errore AI: {e}")
+            st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
+        except Exception as e: st.error(f"Errore Coach: {e}")
 
-    # Prompt Rapidi
+    # Pulsanti Rapidi
     tr1, tr2, tr3 = st.columns(3)
-    p_rapido = None
-    if tr1.button("🌙 SOS Turno Notte"): p_rapido = "Ho un turno di notte tra poco, come mi preparo?"
-    if tr2.button("🥗 Snack Energetici"): p_rapido = "Cosa posso mangiare di sano durante un turno intenso?"
-    if tr3.button("🗑️ Svuota Chat"): 
+    p_veloce = None
+    if tr1.button("🌙 SOS Notte"): p_veloce = "Come prepararsi a un turno di notte?"
+    if tr2.button("🥗 Alimentazione"): p_veloce = "Consigli su cosa mangiare dopo il turno."
+    if tr3.button("🧹 Pulisci Chat"): 
         st.session_state.messages = []
         st.rerun()
 
-    input_testo = st.chat_input("Scrivi qui la tua domanda...")
-    query_finale = input_testo or p_rapido
-    
-    if query_finale:
-        chiedi_coach(query_finale)
+    chat_input = st.chat_input("Chiedi qualcosa al coach...")
+    prompt_finale = chat_input or p_veloce
+    if prompt_finale:
+        chiedi_coach(prompt_finale)
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
