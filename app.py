@@ -14,7 +14,6 @@ st.markdown("""
         .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; height: 3em; }
         .stChatMessage { border-radius: 15px; border: 1px solid #f0f2f6; }
         [data-testid="stExpander"] { border-radius: 15px; background-color: #f8f9fa; }
-        .stSlider { padding-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +55,7 @@ def salva_benessere(username, fatica, sonno):
         supabase.table("wellness").insert(payload).execute()
         return True
     except Exception as e:
-        st.error(f"Errore tecnico: {e}")
+        st.error(f"Errore database: {e}")
         return False
 
 def carica_dati_benessere(username):
@@ -98,7 +97,7 @@ else:
     if "testo_turno" not in st.session_state: st.session_state.testo_turno = ""
 
     with st.sidebar:
-        st.title("👨‍⚕️ Area Personale")
+        st.title("👨‍⚕️ Menù")
         st.write(f"In servizio: **{st.session_state['name']}**")
         if authenticator.logout('Esci', 'sidebar'): 
             st.session_state.messages = []
@@ -110,13 +109,13 @@ else:
             st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
             st.success("Turno analizzato!")
 
-    st.title("🏥 TurnoSano AI Dashboard")
+    st.title("🏥 TurnoSano AI")
 
     # REGISTRAZIONE DATI
-    with st.expander("📝 Diario del Benessere - Registra oggi"):
+    with st.expander("📝 Diario del Benessere"):
         c1, c2 = st.columns(2)
         f_val = c1.slider("Livello Fatica (1-10)", 1, 10, 5)
-        s_val = c2.number_input("Ore di Sonno effettive", 0.0, 20.0, 7.0, step=0.5)
+        s_val = c2.number_input("Ore di Sonno", 0.0, 20.0, 7.0, step=0.5)
         if st.button("💾 Salva Dati"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
                 st.success("Dati salvati!")
@@ -127,24 +126,24 @@ else:
     if not df.empty:
         col1, col2 = st.columns(2)
         with col1:
-            st.plotly_chart(px.line(df, x='created_at', y='fatica', title="Trend Fatica", markers=True), use_container_width=True)
+            st.plotly_chart(px.line(df, x='created_at', y='fatica', title="Andamento Fatica", markers=True), use_container_width=True)
         with col2:
-            st.plotly_chart(px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno"), use_container_width=True)
+            st.plotly_chart(px.bar(df, x='created_at', y='ore_sonno', title="Ore Sonno"), use_container_width=True)
     else:
-        st.info("Registra i tuoi dati per attivare il monitoraggio grafico.")
+        st.info("Nessun dato presente. Inizia a registrare!")
 
-    # --- 6. COACH AI (GROQ) CON COMANDI RAPIDI ---
+    # --- 6. COACH AI (GROQ) ---
     st.divider()
-    st.subheader("💬 Coach AI Benessere")
+    st.subheader("💬 Coach AI")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
         def chiedi_ai(prompt):
             st.session_state.messages.append({"role": "user", "content": prompt})
-            ctx = f"Sei TurnoSano AI, un coach empatico per infermieri. Utente: {st.session_state['name']}."
+            ctx = f"Sei TurnoSano AI, coach per infermieri. Utente: {st.session_state['name']}."
             if st.session_state.testo_turno:
-                ctx += f" Contesto turno: {st.session_state.testo_turno[:800]}"
+                ctx += f" Contesto turno: {st.session_state.testo_turno[:500]}"
             
             try:
                 res = client.chat.completions.create(
@@ -157,5 +156,20 @@ else:
         # TASTI RAPIDI
         tr1, tr2, tr3 = st.columns(3)
         prompt_rapido = None
-        if tr1.button("🌙 SOS Notte"): prompt_rapido = "Consigli pratici per affrontare il prossimo turno di notte."
-        if tr2.button("🥗 Dieta Turnista"): prompt_rapido = "C
+        if tr1.button("🌙 SOS Notte"): 
+            prompt_rapido = "Consigli per affrontare il turno di notte."
+        if tr2.button("🥗 Dieta Turnista"): 
+            prompt_rapido = "Cosa mangiare per avere energia in turno?"
+        if tr3.button("🗑️ Reset Chat"): 
+            st.session_state.messages = []
+            st.rerun()
+
+        chat_in = st.chat_input("Chiedi al Coach...")
+        final_query = chat_in or prompt_rapido
+        
+        if final_query:
+            chiedi_ai(final_query)
+
+        for m in st.session_state.messages:
+            with st.chat_message(m["role"]):
+                st.markdown(m["content
