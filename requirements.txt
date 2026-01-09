@@ -3,3 +3,5 @@ streamlit-authenticator
 supabase
 groq
 PyPDF2
+plotly
+pandas
