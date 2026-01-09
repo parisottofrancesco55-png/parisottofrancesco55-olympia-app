@@ -1,14 +1,54 @@
 import streamlit as st
+from supabase import create_client, Client
 import streamlit_authenticator as stauth
 from groq import Groq
 from PyPDF2 import PdfReader
 
-# 1. Configurazione Pagina
+# --- 1. CONNESSIONE SUPABASE ---
+# Assicurati di avere queste chiavi nei "Secrets" di Streamlit
+try:
+    URL_DB = st.secrets["SUPABASE_URL"]
+    KEY_DB = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(URL_DB, KEY_DB)
+except Exception as e:
+    st.error("Errore: Chiavi Supabase non trovate nei Secrets.")
+    st.stop()
+
+# --- 2. FUNZIONI DATABASE ---
+def carica_credenziali():
+    """Recupera gli utenti salvati su Supabase"""
+    try:
+        res = supabase.table("profiles").select("*").execute()
+        db_users = res.data
+        credenziali = {"usernames": {}}
+        for u in db_users:
+            credenziali["usernames"][u["username"]] = {
+                "name": u["name"],
+                "password": u["password"]
+            }
+        return credenziali
+    except Exception:
+        return {"usernames": {}}
+
+def salva_nuovo_utente(username, name, password_hash):
+    """Salva i dati dell'iscrizione su Supabase"""
+    try:
+        supabase.table("profiles").insert({
+            "username": username,
+            "name": name,
+            "password": password_hash
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Errore salvataggio DB: {e}")
+        return False
+
+# --- 3. CONFIGURAZIONE AUTH ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# 2. Inizializzazione Dati Utenti
+# Carichiamo gli utenti dal database all'avvio
 if "config" not in st.session_state:
-    st.session_state.config = {"usernames": {}}
+    st.session_state.config = carica_credenziali()
 
 authenticator = stauth.Authenticate(
     st.session_state.config,
@@ -17,84 +57,70 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# --- LOGICA DI VISUALIZZAZIONE ---
-# Se l'utente NON è autenticato, mostriamo i Tab di accesso
+# --- 4. INTERFACCIA LOGIN / ISCRIZIONE ---
 if not st.session_state.get("authentication_status"):
     tab1, tab2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
 
     with tab2:
         try:
-            if authenticator.register_user(pre_authorized=None):
-                st.success('Registrazione avvenuta! Ora puoi accedere.')
+            # Il modulo di registrazione di streamlit-authenticator
+            # NOTA: Nelle versioni 2026 i parametri possono variare, questa è la forma stabile
+            new_user = authenticator.register_user(pre_authorized=None)
+            if new_user:
+                username, info = new_user
+                if salva_nuovo_utente(username, info['name'], info['password']):
+                    st.success('Registrazione completata! Ora puoi accedere.')
+                    # Aggiorna la memoria locale dell'app senza riavviare
+                    st.session_state.config = carica_credenziali()
         except Exception as e:
             st.error(f"Errore registrazione: {e}")
 
     with tab1:
-        # Il login aggiorna st.session_state["authentication_status"]
         authenticator.login()
-        if st.session_state.get("authentication_status") is False:
-            st.error('Username o Password errati')
-        elif st.session_state.get("authentication_status") is None:
-            st.info('Inserisci le tue credenziali')
-        
-        # Forza il refresh appena lo stato cambia in True
         if st.session_state.get("authentication_status"):
-            st.rerun()
+            st.rerun() # Entra nell'app dopo il login
 
-# Se l'utente È autenticato, mostriamo l'App reale
+# --- 5. AREA RISERVATA (LOGGATO) ---
 else:
-    # --- AREA RISERVATA (Solo se Loggato) ---
-    
-    # Inizializzazione Memoria AI
+    # Inizializzazione sessioni AI
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "testo_turno" not in st.session_state:
         st.session_state.testo_turno = ""
 
-    # Sidebar con Logout
     with st.sidebar:
-        st.write(f"Ciao, **{st.session_state.get('name', 'Infermiere')}** 👋")
-        # Il pulsante logout resetta lo stato e noi forziamo il rerun
+        st.write(f"Benvenuto, **{st.session_state['name']}** 👋")
         if authenticator.logout('Esci', 'sidebar'):
             st.rerun()
-            
         st.divider()
         file_pdf = st.file_uploader("📂 Carica Turno PDF", type="pdf")
         if file_pdf:
-            try:
-                reader = PdfReader(file_pdf)
-                st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
-                st.success("Turno analizzato!")
-            except Exception as e:
-                st.error(f"Errore PDF: {e}")
+            reader = PdfReader(file_pdf)
+            st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
+            st.success("Turno analizzato!")
 
     st.title("🏥 TurnoSano AI")
-    st.write("Benvenuto nel tuo spazio di lavoro.")
-
-    # --- CHAT CON GROQ ---
+    
+    # Integrazione Groq
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("Configura la API Key nei Secrets!")
+        st.error("Configura la GROQ_API_KEY!")
         st.stop()
 
     if prompt := st.chat_input("Chiedi al Coach..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        sys_prompt = f"Sei TurnoSano AI, coach per l'infermiere {st.session_state.get('name')}."
+        sys_msg = f"Sei TurnoSano AI, coach per l'infermiere {st.session_state['name']}."
         if st.session_state.testo_turno:
-            sys_prompt += f"\nContesto turno: {st.session_state.testo_turno}"
+            sys_msg += f"\nContesto turno: {st.session_state.testo_turno}"
         
-        try:
-            response = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_prompt}] + st.session_state.messages,
-                model="llama-3.1-8b-instant",
-            )
-            st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
-        except Exception as e:
-            st.error(f"Errore AI: {e}")
+        res = client.chat.completions.create(
+            messages=[{"role": "system", "content": sys_msg}] + st.session_state.messages,
+            model="llama-3.1-8b-instant",
+        )
+        st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
 
-    # Display messaggi
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
