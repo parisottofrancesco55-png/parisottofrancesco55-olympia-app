@@ -41,7 +41,7 @@ def carica_credenziali():
 def salva_nuovo_utente(username, name, password_hash):
     try:
         supabase.table("profiles").insert({"username": username, "name": name, "password": password_hash}).execute()
-    except Exception as e: st.error(f"Errore registrazione: {e}")
+    except Exception as e: st.error(f"Errore registrazione DB: {e}")
 
 def salva_benessere(username, fatica, sonno):
     try:
@@ -54,7 +54,7 @@ def salva_benessere(username, fatica, sonno):
         supabase.table("wellness").insert(payload).execute()
         return True
     except Exception as e:
-        st.error(f"Errore database: {e}")
+        st.error(f"Errore salvataggio: {e}")
         return False
 
 def carica_dati_benessere(username):
@@ -77,12 +77,18 @@ authenticator = stauth.Authenticate(
 if not st.session_state.get("authentication_status"):
     t1, t2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
     with t2:
-        res_reg = authenticator.register_user(pre_authorized=None)
-        if res_reg:
-            u, info = res_reg
-            salva_nuovo_utente(u, info['name'], info['password'])
-            st.success('Registrato! Accedi ora.')
-            st.session_state.config = carica_credenziali()
+        try:
+            # CORREZIONE VALUEERROR: Gestione sicura del risultato registrazione
+            res_reg = authenticator.register_user(pre_authorized=None)
+            if res_reg:
+                username, user_info = res_reg
+                if username: # Procede solo se l'utente ha compilato i campi
+                    salva_nuovo_utente(username, user_info['name'], user_info['password'])
+                    st.success('Registrazione completata! Ora puoi accedere dalla tab Accedi.')
+                    st.session_state.config = carica_credenziali()
+        except Exception as e:
+            st.error(f"Errore: {e}")
+            
     with t1:
         authenticator.login()
         if st.session_state.get("authentication_status"): st.rerun()
@@ -111,10 +117,10 @@ else:
     with st.expander("📝 Come stai oggi?"):
         c1, c2 = st.columns(2)
         f_val = c1.slider("Livello di Fatica (1-10)", 1, 10, 5)
-        s_val = c2.number_input("Ore di Sonno", 0.0, 15.0, 7.0)
-        if st.button("Salva Dati Giornalieri"):
+        s_val = c2.number_input("Ore di Sonno fatte", 0.0, 15.0, 7.0)
+        if st.button("Salva Dati"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
-                st.success("Dati salvati con successo!")
+                st.success("Dati salvati!")
                 st.rerun()
 
     # --- ANALISI GRAFICA ---
@@ -128,7 +134,7 @@ else:
             fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno")
             st.plotly_chart(fig_s, use_container_width=True)
     else:
-        st.info("Nessun dato registrato. Inizia oggi per monitorare il tuo benessere!")
+        st.info("Registra il tuo stato per vedere i grafici.")
 
     # --- COACH AI (GROQ) ---
     st.divider()
@@ -137,15 +143,14 @@ else:
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("GROQ_API_KEY mancante!")
+        st.error("Manca GROQ_API_KEY nei Secrets!")
         st.stop()
 
-    # Funzione per gestire la chat
     def chiedi_coach(testo):
         st.session_state.messages.append({"role": "user", "content": testo})
-        context = f"Sei TurnoSano AI, esperto di salute per infermieri. Utente: {st.session_state['name']}."
+        context = f"Sei TurnoSano AI. Utente: {st.session_state['name']}."
         if st.session_state.testo_turno:
-            context += f"\nContesto Turno PDF: {st.session_state.testo_turno[:800]}"
+            context += f"\nContesto Turno: {st.session_state.testo_turno[:1000]}"
         
         try:
             res = client.chat.completions.create(
@@ -154,26 +159,22 @@ else:
             )
             st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
         except Exception as e:
-            st.error(f"Errore Coach: {e}")
+            st.error(f"Errore AI: {e}")
 
     # Tasti Rapidi
     tr1, tr2, tr3 = st.columns(3)
     p_rapido = None
-    if tr1.button("🌙 SOS Notte"): p_rapido = "Consigli per il turno di notte."
-    if tr2.button("🥗 Dieta Turnista"): p_rapido = "Cosa dovrei mangiare per non sentirmi stanco?"
+    if tr1.button("🌙 SOS Notte"): p_rapido = "Consigli per turno di notte."
+    if tr2.button("🥗 Dieta"): p_rapido = "Cosa mangiare stasera?"
     if tr3.button("🗑️ Reset Chat"): 
         st.session_state.messages = []
         st.rerun()
 
-    # Input Libero
-    user_input = st.chat_input("Chiedi aiuto al coach o incolla un turno...")
-    
-    # Esecuzione (priorità all'input manuale, poi ai bottoni)
+    user_input = st.chat_input("Chiedi al Coach...")
     final_query = user_input or p_rapido
     if final_query:
         chiedi_coach(final_query)
 
-    # Visualizzazione Messaggi
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
