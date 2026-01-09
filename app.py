@@ -9,13 +9,12 @@ import streamlit_authenticator as stauth
 # --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
-# Design CSS per Mobile
 st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
-        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; }
+        .stButton>button { border-radius: 20px; font-weight: bold; width: 100%; height: 3em; }
         .stChatMessage { border-radius: 15px; }
     </style>
 """, unsafe_allow_html=True)
@@ -46,7 +45,13 @@ def salva_nuovo_utente(username, name, password_hash):
 
 def salva_benessere(username, fatica, sonno):
     try:
-        supabase.table("wellness").insert({"user_id": username, "fatica": fatica, "ore_sonno": sonno}).execute()
+        # PULIZIA DATI PER EVITARE ERRORE 405 JSON
+        payload = {
+            "user_id": str(username),
+            "fatica": int(fatica),
+            "ore_sonno": float(sonno)
+        }
+        supabase.table("wellness").insert(payload).execute()
         return True
     except Exception as e:
         st.error(f"Errore database: {e}")
@@ -72,22 +77,18 @@ authenticator = stauth.Authenticate(
 if not st.session_state.get("authentication_status"):
     t1, t2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
     with t2:
-        try:
-            # register_user restituisce una tupla (username, user_info) o None
-            res_reg = authenticator.register_user(pre_authorized=None)
-            if res_reg:
-                u, info = res_reg
-                salva_nuovo_utente(u, info['name'], info['password'])
-                st.success('Registrato! Ora puoi accedere.')
-                st.session_state.config = carica_credenziali()
-        except Exception as e: st.error(f"Errore: {e}")
+        res_reg = authenticator.register_user(pre_authorized=None)
+        if res_reg:
+            u, info = res_reg
+            salva_nuovo_utente(u, info['name'], info['password'])
+            st.success('Registrato! Accedi ora.')
+            st.session_state.config = carica_credenziali()
     with t1:
         authenticator.login()
         if st.session_state.get("authentication_status"): st.rerun()
 
-# --- 5. AREA RISERVATA ---
 else:
-    # Setup Memoria
+    # --- 5. AREA RISERVATA (LOGGATO) ---
     if "messages" not in st.session_state: st.session_state.messages = []
     if "testo_turno" not in st.session_state: st.session_state.testo_turno = ""
 
@@ -110,10 +111,10 @@ else:
     with st.expander("📝 Come stai oggi?"):
         c1, c2 = st.columns(2)
         f_val = c1.slider("Livello di Fatica (1-10)", 1, 10, 5)
-        s_val = c2.number_input("Ore di Sonno fatte", 0.0, 15.0, 7.0)
-        if st.button("Salva Stato"):
+        s_val = c2.number_input("Ore di Sonno", 0.0, 15.0, 7.0)
+        if st.button("Salva Dati Giornalieri"):
             if salva_benessere(st.session_state['username'], f_val, s_val):
-                st.success("Dati salvati!")
+                st.success("Dati salvati con successo!")
                 st.rerun()
 
     # --- ANALISI GRAFICA ---
@@ -127,7 +128,7 @@ else:
             fig_s = px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno")
             st.plotly_chart(fig_s, use_container_width=True)
     else:
-        st.info("Registra i tuoi dati per vedere l'andamento nel tempo.")
+        st.info("Nessun dato registrato. Inizia oggi per monitorare il tuo benessere!")
 
     # --- COACH AI (GROQ) ---
     st.divider()
@@ -136,46 +137,43 @@ else:
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
     except:
-        st.error("Configura GROQ_API_KEY nei Secrets!")
+        st.error("GROQ_API_KEY mancante!")
         st.stop()
 
-    # Funzione logica chat
-    def genera_risposta(testo_input):
-        st.session_state.messages.append({"role": "user", "content": testo_input})
-        
-        # Prepariamo il contesto
-        context = f"Sei TurnoSano AI. Utente: {st.session_state['name']}."
+    # Funzione per gestire la chat
+    def chiedi_coach(testo):
+        st.session_state.messages.append({"role": "user", "content": testo})
+        context = f"Sei TurnoSano AI, esperto di salute per infermieri. Utente: {st.session_state['name']}."
         if st.session_state.testo_turno:
-            context += f"\nTurni caricati (usa questi dati per dare consigli): {st.session_state.testo_turno[:1000]}"
+            context += f"\nContesto Turno PDF: {st.session_state.testo_turno[:800]}"
         
         try:
-            chat_completion = client.chat.completions.create(
+            res = client.chat.completions.create(
                 messages=[{"role": "system", "content": context}] + st.session_state.messages,
                 model="llama-3.1-8b-instant",
             )
-            risposta = chat_completion.choices[0].message.content
-            st.session_state.messages.append({"role": "assistant", "content": risposta})
+            st.session_state.messages.append({"role": "assistant", "content": res.choices[0].message.content})
         except Exception as e:
-            st.error(f"Errore AI: {e}")
+            st.error(f"Errore Coach: {e}")
 
     # Tasti Rapidi
     tr1, tr2, tr3 = st.columns(3)
-    prompt_button = None
-    if tr1.button("🌙 SOS Notte"): prompt_button = "Dammi consigli per gestire il turno di notte."
-    if tr2.button("🥗 Cosa mangio?"): prompt_button = "Suggeriscimi un pasto equilibrato per il mio turno."
-    if tr3.button("🗑️ Svuota Chat"): 
+    p_rapido = None
+    if tr1.button("🌙 SOS Notte"): p_rapido = "Consigli per il turno di notte."
+    if tr2.button("🥗 Dieta Turnista"): p_rapido = "Cosa dovrei mangiare per non sentirmi stanco?"
+    if tr3.button("🗑️ Reset Chat"): 
         st.session_state.messages = []
         st.rerun()
 
-    # Input Utente
-    user_input = st.chat_input("Chiedi quello che vuoi o incolla il tuo turno...")
+    # Input Libero
+    user_input = st.chat_input("Chiedi aiuto al coach o incolla un turno...")
     
-    # Se è stato premuto un tasto o scritto un testo
-    final_input = user_input or prompt_button
-    if final_input:
-        genera_risposta(final_input)
+    # Esecuzione (priorità all'input manuale, poi ai bottoni)
+    final_query = user_input or p_rapido
+    if final_query:
+        chiedi_coach(final_query)
 
-    # Mostra Messaggi
+    # Visualizzazione Messaggi
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
