@@ -23,7 +23,7 @@ try:
     KEY_DB = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL_DB, KEY_DB)
 except Exception as e:
-    st.error("Errore: Credenziali Supabase mancanti nei Secrets!")
+    st.error("Errore: Credenziali Supabase mancanti!")
     st.stop()
 
 # --- 3. FUNZIONI DATABASE ---
@@ -46,7 +46,6 @@ def salva_nuovo_utente(username, name, password_hash):
     except Exception as e: st.error(f"Errore registrazione: {e}")
 
 def salva_benessere(username, fatica, sonno):
-    """ RISOLUZIONE ERRORE 405: Converte in tipi nativi Python """
     try:
         payload = {
             "user_id": str(username),
@@ -94,6 +93,59 @@ if not st.session_state.get("authentication_status"):
         if st.session_state.get("authentication_status"): st.rerun()
 
 else:
-    # --- 5. DASHBOARD ---
-    if "messages" not in st.session_state: st.session_state.messages = []
-    if "testo_turno" not in st.
+    # --- 5. DASHBOARD (LOGGATO) ---
+    if "messages" not in st.session_state: 
+        st.session_state.messages = []
+    if "testo_turno" not in st.session_state: 
+        st.session_state.testo_turno = ""
+
+    with st.sidebar:
+        st.write(f"Ciao, **{st.session_state['name']}**")
+        if authenticator.logout('Esci', 'sidebar'): 
+            st.session_state.messages = []
+            st.rerun()
+        st.divider()
+        file_pdf = st.file_uploader("📂 Carica Turno PDF", type="pdf")
+        if file_pdf:
+            reader = PdfReader(file_pdf)
+            st.session_state.testo_turno = "".join([p.extract_text() or "" for p in reader.pages])
+            st.success("Turno analizzato!")
+
+    st.title("🏥 Dashboard Benessere")
+
+    with st.expander("📝 Registra il tuo stato di oggi"):
+        c1, c2 = st.columns(2)
+        f_val = c1.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = c2.number_input("Ore di Sonno", 0.0, 20.0, 7.0, step=0.5)
+        if st.button("Salva Dati"):
+            if salva_benessere(st.session_state['username'], f_val, s_val):
+                st.success("Dati salvati!")
+                st.rerun()
+
+    df = carica_dati_benessere(st.session_state['username'])
+    if not df.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(px.line(df, x='created_at', y='fatica', title="Trend Fatica", markers=True), use_container_width=True)
+        with col2:
+            st.plotly_chart(px.bar(df, x='created_at', y='ore_sonno', title="Trend Sonno"), use_container_width=True)
+    else:
+        st.info("Registra i tuoi dati per vedere i grafici!")
+
+    # --- 6. AI COACH ---
+    st.divider()
+    st.subheader("💬 Coach AI")
+    
+    if "GROQ_API_KEY" in st.secrets:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        
+        def chiedi_ai(prompt):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            ctx = f"Sei TurnoSano AI. Utente: {st.session_state['name']}."
+            if st.session_state.testo_turno:
+                ctx += f" Turno: {st.session_state.testo_turno[:500]}"
+            
+            res = client.chat.completions.create(
+                messages=[{"role": "system", "content": ctx}] + st.session_state.messages,
+                model="llama-3.1-8b-instant",
+            )
