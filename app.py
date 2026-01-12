@@ -5,7 +5,7 @@ from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
 def init_db():
@@ -14,7 +14,7 @@ def init_db():
         key = st.secrets["SUPABASE_KEY"].strip()
         return create_client(url, key)
     except Exception as e:
-        st.error(f"Errore Database: {e}")
+        st.error(f"Errore configurazione Database: {e}")
         st.stop()
 
 sb = init_db()
@@ -26,7 +26,7 @@ def load_users():
         return {u["username"]: {"name": u["name"], "password": u["password"], "email": u.get("email", "")} for u in res.data}
     except: return {}
 
-# Inizializzazione dati
+# Inizializzazione sessione
 if "user_db" not in st.session_state:
     st.session_state.user_db = load_users()
 
@@ -34,6 +34,7 @@ if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
 # --- 2. AUTENTICAZIONE ---
+# Passiamo la struttura corretta dei nomi utente
 auth = stauth.Authenticate(
     {"usernames": st.session_state.user_db},
     "turnosano_cookie",
@@ -41,7 +42,7 @@ auth = stauth.Authenticate(
     30
 )
 
-# --- 3. LOGICA DI NAVIGAZIONE ---
+# --- 3. LOGICA DI ACCESSO / REGISTRAZIONE ---
 if not st.session_state.get("authentication_status"):
     st.title("🏥 TurnoSano AI")
     
@@ -57,9 +58,11 @@ if not st.session_state.get("authentication_status"):
 
     else:
         st.subheader("📝 Registrazione")
+        # Chiamata pulita per evitare il TypeError e la scomparsa delle caselle
         try:
-            # Chiamata compatibile con le versioni 0.3.x
+            # register_user genera automaticamente le caselle di testo e il pulsante
             reg_data = auth.register_user(location='main')
+            
             if reg_data:
                 email, username, password = reg_data
                 if username:
@@ -71,16 +74,16 @@ if not st.session_state.get("authentication_status"):
                     }).execute()
                     st.success(f"✅ Registrazione di '{username}' riuscita!")
                     st.session_state.user_db = load_users()
-                    st.info("Torna al Login per entrare.")
+                    st.info("Ora puoi cliccare il tasto sotto per accedere.")
         except Exception as e:
-            st.error(f"Errore: {e}. Assicurati di compilare tutti i campi.")
+            st.error("Compila tutti i campi sopra e premi 'Register'.")
         
         if st.button("Torna al Login"):
             st.session_state.auth_mode = "login"
             st.rerun()
 
 else:
-    # --- 4. APP PRINCIPALE ---
+    # --- 4. DASHBOARD UTENTE (DOPO IL LOGIN) ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
     auth.logout('Esci', 'sidebar')
     
@@ -88,40 +91,45 @@ else:
     if pdf_file:
         reader = PdfReader(pdf_file)
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
-        st.sidebar.success("PDF Caricato")
+        st.sidebar.success("Turno analizzato!")
 
     st.title("🏥 Dashboard Benessere")
 
-    # Diario
+    # Form con pulsante di invio corretto
     with st.form("wellness_form", clear_on_submit=True):
-        st.subheader("📝 Diario")
-        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore sonno effettive", 0.0, 24.0, 7.0, step=0.5)
-        if st.form_submit_button("Salva Parametri"):
+        st.subheader("📝 Diario Giornaliero")
+        f_val = st.slider("Fatica percepita (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
+        
+        # PULSANTE DI INVIO (Risolve l'errore Missing Submit Button)
+        submitted = st.form_submit_button("Salva Parametri")
+        
+        if submitted:
             try:
                 sb.table("wellness").insert({
                     "user_id": st.session_state['username'], 
-                    "fatica": float(f_val), "ore_sonno": float(s_val)
+                    "fatica": float(f_val), 
+                    "ore_sonno": float(s_val)
                 }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
-            except: st.error("Errore salvataggio.")
+            except: 
+                st.error("Errore nel salvataggio dei dati.")
 
-    # Storico (Tabella)
-    with st.expander("📂 I tuoi ultimi dati"):
+    # Storico
+    with st.expander("📂 I tuoi ultimi inserimenti"):
         try:
             res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
             if res_w.data:
                 df = pd.DataFrame(res_w.data)
                 df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
                 st.table(df[["Data", "fatica", "ore_sonno"]])
-            else:
-                st.info("Ancora nessun dato.")
-        except: st.info("Caricamento...")
+        except:
+            st.info("Nessun dato ancora disponibile.")
 
     # --- 5. ASSISTENTE SCIENTIFICO ---
     st.divider()
-    st.subheader("🔬 Supporto Scientifico per Turnisti")
+    st.subheader("🔬 Strategie Scientifiche per Turnisti")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -129,8 +137,8 @@ else:
         # DOMANDE RAPIDE
         c1, c2, c3 = st.columns(3)
         p_rapido = None
-        if c1.button("🌙 Recupero Notte"): p_rapido = "Strategie scientifiche (cronobiologia) per recuperare dopo il turno di notte."
-        if c2.button("🥗 Nutrizione"): p_rapido = "Cosa dice la scienza sull'alimentazione ideale per i turnisti notturni?"
+        if c1.button("🌙 Recupero Notte"): p_rapido = "Quali sono le strategie di cronobiologia per il recupero post-notte?"
+        if c2.button("🥗 Nutrizione"): p_rapido = "Consigli sull'alimentazione durante i turni notturni secondo studi scientifici."
         if c3.button("🗑️ Reset Chat"):
             st.session_state.msgs = []
             st.rerun()
@@ -142,14 +150,14 @@ else:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": q})
             
+            # PROMPT SCIENTIFICO (NON MEDICO)
             sys_msg = (
-                "Sei un assistente scientifico esperto in cronobiologia. "
-                "NON sei un medico e non dai pareri clinici. Fornisci consigli basati su studi "
-                "scientifici riguardo l'igiene del sonno e la gestione dei ritmi circadiani."
+                "Sei un assistente esperto in cronobiologia e medicina del lavoro. "
+                "NON sei un medico e non devi dare consigli clinici o diagnosi. "
+                "Fornisci consigli comportamentali basati su studi scientifici riguardo l'igiene del sonno, "
+                "la gestione della luce e l'alimentazione dei turnisti."
             )
-            if "pdf_text" in st.session_state:
-                sys_msg += f" Considera questi turni: {st.session_state.pdf_text[:300]}"
-
+            
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
