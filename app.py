@@ -5,9 +5,10 @@ from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 # --- 1. CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
+st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
 def init_db():
     try:
@@ -27,7 +28,6 @@ def load_users():
     except:
         return {}
 
-# Sincronizzazione utenti
 if "user_db" not in st.session_state:
     st.session_state.user_db = load_users()
 
@@ -67,51 +67,45 @@ if not st.session_state.get("authentication_status"):
             
             if submit_reg:
                 if not new_user or not new_pw or not new_name:
-                    st.warning("Compila tutti i campi!")
+                    st.warning("Compila tutto!")
                 elif new_pw != confirm_pw:
                     st.error("Le password non coincidono.")
-                elif len(new_pw) < 6:
-                    st.error("La password deve avere almeno 6 caratteri.")
-                elif new_user in st.session_state.user_db:
-                    st.error("Username già occupato.")
                 else:
                     hashed_pw = stauth.Hasher.hash(new_pw)
                     try:
-                        sb.table("profiles").insert({
-                            "username": new_user,
-                            "name": new_name,
-                            "password": hashed_pw
-                        }).execute()
-                        st.success(f"✅ Utente {new_user} creato!")
+                        sb.table("profiles").insert({"username": new_user, "name": new_name, "password": hashed_pw}).execute()
+                        st.success("✅ Account creato con successo!")
                         st.session_state.user_db = load_users()
-                        st.info("Ora puoi tornare al login e accedere.")
+                        st.info("Ora puoi tornare al Login.")
                     except Exception as e:
-                        st.error(f"Errore database: {e}")
+                        st.error(f"Errore: {e}")
         
         if st.button("Torna al Login"):
             st.session_state.auth_mode = "login"
             st.rerun()
 
 else:
-    # --- 4. APP PRINCIPALE (DASHBOARD) ---
+    # --- 4. DASHBOARD UTENTE ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
     auth.logout('Esci', 'sidebar')
     
-    pdf_file = st.sidebar.file_uploader("Carica Turno (PDF)", type="pdf")
+    # Caricamento PDF Turni
+    st.sidebar.divider()
+    pdf_file = st.sidebar.file_uploader("📅 Carica Turno (PDF)", type="pdf")
     if pdf_file:
         reader = PdfReader(pdf_file)
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
         st.sidebar.success("Turno analizzato!")
 
-    st.title("🏥 Dashboard Operatore")
+    st.title("🏥 Dashboard Benessere Operatori")
 
-    # Modulo di Inserimento Dati
-    with st.form("wellness_form", clear_on_submit=True):
-        st.subheader("📝 Diario del Benessere")
-        f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
-        if st.form_submit_button("Salva Parametri"):
-            try:
+    # Inserimento Dati Giornalieri
+    with st.expander("📝 Inserisci i dati di oggi", expanded=False):
+        with st.form("wellness_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            f_val = c1.slider("Livello Fatica (1-10)", 1, 10, 5)
+            s_val = c2.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
+            if st.form_submit_button("Salva Parametri"):
                 sb.table("wellness").insert({
                     "user_id": st.session_state['username'], 
                     "fatica": float(f_val), 
@@ -119,61 +113,66 @@ else:
                 }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
-            except: st.error("Errore nel salvataggio.")
 
-    # --- 5. SEZIONE GRAFICI E STORICO ---
-    with st.expander("📊 Analisi Andamento Benessere", expanded=True):
-        try:
-            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(30).execute()
+    # --- 5. METRICHE E GRAFICI ---
+    try:
+        res = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df['created_at'] = pd.to_datetime(df['created_at'])
             
-            if res_w.data:
-                df = pd.DataFrame(res_w.data)
-                df['Data'] = pd.to_datetime(df['created_at'])
-                df = df.sort_values('Data')
+            # Calcolo Medie 7 Giorni
+            settimana_fa = datetime.now() - timedelta(days=7)
+            df_week = df[df['created_at'] > settimana_fa]
+            
+            avg_fatica = df_week['fatica'].mean() if not df_week.empty else 0
+            avg_sonno = df_week['ore_sonno'].mean() if not df_week.empty else 0
 
-                # Creazione Grafico Interattivo
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df['Data'], y=df['fatica'], name="Fatica (1-10)", line=dict(color='firebrick', width=3), mode='lines+markers'))
-                fig.add_trace(go.Scatter(x=df['Data'], y=df['ore_sonno'], name="Ore Sonno", line=dict(color='royalblue', width=3, dash='dot'), mode='lines+markers'))
+            # Visualizzazione KPI
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Media Fatica (7g)", f"{avg_fatica:.1f}/10")
+            m2.metric("Media Sonno (7g)", f"{avg_sonno:.1f}h")
+            m3.metric("Giorni Monitorati", len(df))
 
-                fig.update_layout(
-                    title="Andamento Fatica vs Sonno",
-                    xaxis_title="Data rilevazione",
-                    yaxis=dict(title="Valore"),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    height=400
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.write("---")
-                st.dataframe(df[["Data", "fatica", "ore_sonno"]].sort_values('Data', ascending=False), hide_index=True)
-            else:
-                st.info("Inserisci i tuoi primi dati per generare i grafici.")
-        except Exception as e:
-            st.error("In attesa di dati per generare il grafico.")
+            # Grafico Plotly
+            df_plot = df.sort_values('created_at').tail(14)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['fatica'], name="Fatica", line=dict(color='#d63031', width=3), mode='lines+markers'))
+            fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['ore_sonno'], name="Sonno", line=dict(color='#0984e3', width=3), mode='lines+markers'))
+            fig.update_layout(title="Andamento Fatica vs Sonno (Ultime 2 Settimane)", height=400, template="plotly_white", legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.info("Inizia a inserire i dati per vedere le tue statistiche.")
 
-    # --- 6. COACH SCIENTIFICO ---
+    # --- 6. COACH SCIENTIFICO CON AI ---
     st.divider()
-    st.subheader("🔬 Supporto Scientifico")
+    st.subheader("🔬 Supporto Scientifico Personalizzato")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        c1, c2, c3 = st.columns(3)
-        q_click = None
-        if c1.button("🌙 Recupero Notte"): q_click = "Fornisci strategie di cronobiologia per recuperare dopo il turno di notte."
-        if c2.button("🥗 Dieta Turnista"): q_click = "Consigli nutrizionali basati sulla scienza per chi lavora di notte."
-        if c3.button("🗑️ Reset Chat"): st.session_state.msgs = []; st.rerun()
+        
+        # Pulsanti Rapidi
+        col1, col2, col3 = st.columns(3)
+        p_rapido = None
+        if col1.button("🌙 Recupero Post-Notte"): p_rapido = "Strategie scientifiche per recuperare dopo il turno di notte."
+        if col2.button("🥗 Dieta Turnista"): p_rapido = "Consigli nutrizionali cronobiologici per chi lavora di notte."
+        if col3.button("🗑️ Reset Chat"):
+            st.session_state.msgs = []
+            st.rerun()
 
-        chat_in = st.chat_input("Chiedi al coach (es: gestione luce, caffeina)...")
-        final_q = chat_in or q_click
+        chat_in = st.chat_input("Chiedi un consiglio scientifico...")
+        q = chat_in or p_rapido
 
-        if final_q:
+        if q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
-            st.session_state.msgs.append({"role": "user", "content": final_q})
+            st.session_state.msgs.append({"role": "user", "content": q})
             
-            sys_msg = "Sei un esperto in cronobiologia e medicina del lavoro. NON sei un medico. Dai consigli basati su studi scientifici."
+            # Prompt con contesto
+            sys_msg = "Sei un esperto in cronobiologia. NON sei un medico. Dai consigli basati su studi scientifici."
             if "pdf_text" in st.session_state:
-                sys_msg += f" Considera questi turni dell'utente: {st.session_state.pdf_text[:300]}"
+                sys_msg += f" Considera questi turni dell'utente: {st.session_state.pdf_text[:500]}"
+            if 'avg_sonno' in locals():
+                sys_msg += f" Nota: l'utente dorme in media {avg_sonno:.1f} ore."
 
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
