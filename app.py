@@ -40,20 +40,39 @@ auth = stauth.Authenticate(
 
 # --- 3. LOGICA DI ACCESSO ---
 if not st.session_state.get("authentication_status"):
+    # Messaggio di benvenuto sopra i tab
+    st.title("Benvenuto in TurnoSano AI")
     t1, t2 = st.tabs(["Accedi 🔑", "Iscriviti 📝"])
+    
     with t1:
         auth.login(location='main')
+        if st.session_state["authentication_status"] is False:
+            st.error("Username o password errati.")
+            
     with t2:
         try:
+            # Catturiamo l'esito della registrazione
             res_reg = auth.register_user(location='main')
             if res_reg and res_reg[0]:
                 u_name, u_info = res_reg
-                sb.table("profiles").insert({"username": str(u_name), "name": str(u_info['name']), "password": str(u_info['password'])}).execute()
-                st.success("Iscrizione riuscita! Ora puoi accedere dal tab Accedi.")
+                # Salvataggio su Supabase
+                sb.table("profiles").insert({
+                    "username": str(u_name), 
+                    "name": str(u_info['name']), 
+                    "password": str(u_info['password'])
+                }).execute()
+                
+                # Feedback visivo forte
+                st.balloons()
+                st.success("✅ REGISTRAZIONE COMPLETATA!")
+                st.info("Ora clicca sul tab 'ACCEDI' qui sopra per entrare nell'app.")
+                
+                # Sincronizza i dati per il login immediato
                 st.session_state.config = get_auth_config()
-        except: st.info("Scegli le tue credenziali.")
+        except Exception as e:
+            st.info("Compila i campi per creare il tuo account.")
 else:
-    # --- 4. DASHBOARD UTENTE ---
+    # --- 4. AREA UTENTE LOGGATO ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
     auth.logout('Esci', 'sidebar')
     
@@ -65,24 +84,23 @@ else:
 
     st.title("🏥 TurnoSano AI")
 
-    # --- FORM BENESSERE (Con Submit Button Corretto) ---
+    # Modulo Diario Benessere
     with st.form("wellness_form", clear_on_submit=True):
         st.subheader("📝 Diario del Benessere")
         f_val = st.slider("Fatica percepita (1-10)", 1, 10, 5)
         s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
-        
-        # IL PULSANTE DI INVIO DEVE ESSERE DENTRO IL "WITH ST.FORM"
         submitted = st.form_submit_button("Salva Parametri")
         
         if submitted:
             try:
                 data_in = {"user_id": str(st.session_state['username']), "fatica": float(f_val), "ore_sonno": float(s_val)}
                 sb.table("wellness").insert(data_in).execute()
-                st.success("Dati salvati correttamente!")
+                st.success("Dati salvati!")
                 st.rerun()
-            except Exception as e: 
+            except Exception as e:
                 st.error(f"Errore nel salvataggio: {e}")
 
+    # Storico
     with st.expander("📂 I tuoi ultimi dati"):
         try:
             res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
@@ -90,16 +108,16 @@ else:
                 df = pd.DataFrame(res_w.data)
                 df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
                 st.table(df[["Data", "fatica", "ore_sonno"]])
-        except: st.info("Nessun dato presente nel database.")
+        except:
+            st.info("In attesa di dati...")
 
-    # --- 5. ASSISTENTE SCIENTIFICO CON DOMANDE RAPIDE ---
+    # --- 5. ASSISTENTE SCIENTIFICO ---
     st.divider()
     st.subheader("🔬 Supporto Scientifico per Turnisti")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
-        # DOMANDE RAPIDE
         c1, c2, c3 = st.columns(3)
         p_rapido = None
         if c1.button("🌙 Strategia Notte"): p_rapido = "Fornisci strategie basate su studi scientifici per gestire il post-turno di notte."
@@ -117,8 +135,7 @@ else:
             
             sys_prompt = (
                 "Sei un assistente esperto in cronobiologia e medicina occupazionale. "
-                "NON sei un medico e NON fornisci diagnosi. Il tuo compito è dare consigli "
-                "basati esclusivamente su evidenze scientifiche riguardo i ritmi circadiani e il sonno."
+                "NON sei un medico e NON fornisci diagnosi cliniche. Offri consigli comportamentali basati su studi scientifici."
             )
             if "pdf_text" in st.session_state:
                 sys_prompt += f" Considera questi turni: {st.session_state.pdf_text[:400]}"
