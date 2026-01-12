@@ -4,8 +4,9 @@ from supabase import create_client, Client
 from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
+import plotly.graph_objects as go
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
 def init_db():
@@ -57,13 +58,11 @@ if not st.session_state.get("authentication_status"):
 
     else:
         st.subheader("📝 Registrazione Nuovo Utente")
-        
         with st.form("registration_form"):
             new_user = st.text_input("Username (per il login)")
             new_name = st.text_input("Nome Visualizzato")
             new_pw = st.text_input("Password", type="password")
             confirm_pw = st.text_input("Conferma Password", type="password")
-            
             submit_reg = st.form_submit_button("Crea Account")
             
             if submit_reg:
@@ -76,19 +75,16 @@ if not st.session_state.get("authentication_status"):
                 elif new_user in st.session_state.user_db:
                     st.error("Username già occupato.")
                 else:
-                    # NUOVA LOGICA HASHING (Compatibile con 0.3.0+)
                     hashed_pw = stauth.Hasher.hash(new_pw)
-                    
                     try:
                         sb.table("profiles").insert({
                             "username": new_user,
                             "name": new_name,
                             "password": hashed_pw
                         }).execute()
-                        
                         st.success(f"✅ Utente {new_user} creato!")
                         st.session_state.user_db = load_users()
-                        st.info("Ora clicca su 'Torna al Login'.")
+                        st.info("Ora puoi tornare al login e accedere.")
                     except Exception as e:
                         st.error(f"Errore database: {e}")
         
@@ -97,8 +93,8 @@ if not st.session_state.get("authentication_status"):
             st.rerun()
 
 else:
-    # --- 4. APP PRINCIPALE ---
-    st.sidebar.title(f"👋 Benvenuto, {st.session_state['name']}")
+    # --- 4. APP PRINCIPALE (DASHBOARD) ---
+    st.sidebar.title(f"👋 {st.session_state['name']}")
     auth.logout('Esci', 'sidebar')
     
     pdf_file = st.sidebar.file_uploader("Carica Turno (PDF)", type="pdf")
@@ -109,11 +105,12 @@ else:
 
     st.title("🏥 Dashboard Operatore")
 
+    # Modulo di Inserimento Dati
     with st.form("wellness_form", clear_on_submit=True):
-        st.subheader("📝 Diario Benessere")
+        st.subheader("📝 Diario del Benessere")
         f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0)
-        if st.form_submit_button("Salva Dati"):
+        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
+        if st.form_submit_button("Salva Parametri"):
             try:
                 sb.table("wellness").insert({
                     "user_id": st.session_state['username'], 
@@ -121,19 +118,41 @@ else:
                     "ore_sonno": float(s_val)
                 }).execute()
                 st.success("Dati salvati!")
-            except: st.error("Errore salvataggio.")
+                st.rerun()
+            except: st.error("Errore nel salvataggio.")
 
-    # Storico
-    with st.expander("📂 I tuoi dati recenti"):
+    # --- 5. SEZIONE GRAFICI E STORICO ---
+    with st.expander("📊 Analisi Andamento Benessere", expanded=True):
         try:
-            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
+            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(30).execute()
+            
             if res_w.data:
                 df = pd.DataFrame(res_w.data)
-                df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
-                st.table(df[["Data", "fatica", "ore_sonno"]])
-        except: st.info("Ancora nessun dato registrato.")
+                df['Data'] = pd.to_datetime(df['created_at'])
+                df = df.sort_values('Data')
 
-    # --- 5. COACH SCIENTIFICO ---
+                # Creazione Grafico Interattivo
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df['Data'], y=df['fatica'], name="Fatica (1-10)", line=dict(color='firebrick', width=3), mode='lines+markers'))
+                fig.add_trace(go.Scatter(x=df['Data'], y=df['ore_sonno'], name="Ore Sonno", line=dict(color='royalblue', width=3, dash='dot'), mode='lines+markers'))
+
+                fig.update_layout(
+                    title="Andamento Fatica vs Sonno",
+                    xaxis_title="Data rilevazione",
+                    yaxis=dict(title="Valore"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.write("---")
+                st.dataframe(df[["Data", "fatica", "ore_sonno"]].sort_values('Data', ascending=False), hide_index=True)
+            else:
+                st.info("Inserisci i tuoi primi dati per generare i grafici.")
+        except Exception as e:
+            st.error("In attesa di dati per generare il grafico.")
+
+    # --- 6. COACH SCIENTIFICO ---
     st.divider()
     st.subheader("🔬 Supporto Scientifico")
     
@@ -141,23 +160,23 @@ else:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         c1, c2, c3 = st.columns(3)
         q_click = None
-        if c1.button("🌙 Recupero Notte"): q_click = "Strategie scientifiche per il recupero post-notte."
-        if c2.button("🥗 Dieta Turnista"): q_click = "Consigli cronobiologici sull'alimentazione."
+        if c1.button("🌙 Recupero Notte"): q_click = "Fornisci strategie di cronobiologia per recuperare dopo il turno di notte."
+        if c2.button("🥗 Dieta Turnista"): q_click = "Consigli nutrizionali basati sulla scienza per chi lavora di notte."
         if c3.button("🗑️ Reset Chat"): st.session_state.msgs = []; st.rerun()
 
-        chat_in = st.chat_input("Chiedi al coach...")
+        chat_in = st.chat_input("Chiedi al coach (es: gestione luce, caffeina)...")
         final_q = chat_in or q_click
 
         if final_q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": final_q})
             
-            sys_prompt = "Sei un esperto in cronobiologia. Dai consigli basati su studi scientifici. Non sei un medico."
+            sys_msg = "Sei un esperto in cronobiologia e medicina del lavoro. NON sei un medico. Dai consigli basati su studi scientifici."
             if "pdf_text" in st.session_state:
-                sys_prompt += f" Considera questi turni: {st.session_state.pdf_text[:300]}"
+                sys_msg += f" Considera questi turni dell'utente: {st.session_state.pdf_text[:300]}"
 
             res_ai = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_prompt}] + st.session_state.msgs,
+                messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
             )
             st.session_state.msgs.append({"role": "assistant", "content": res_ai.choices[0].message.content})
