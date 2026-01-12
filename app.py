@@ -98,7 +98,7 @@ else:
 
     st.title("🏥 Dashboard Benessere")
 
-    # Inserimento Dati
+    # --- 5. INSERIMENTO DATI ---
     with st.expander("📝 Inserisci i dati di oggi", expanded=True):
         with st.form("wellness_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -111,45 +111,61 @@ else:
                         "fatica": float(f_val), 
                         "ore_sonno": float(s_val)
                     }).execute()
-                    st.success("Dati salvati!")
+                    st.success("Dati salvati con successo!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Errore invio: {e}")
+                    st.error(f"Errore durante il salvataggio: {e}")
 
-    # --- 5. ANALISI DATI (Grafico e Medie) ---
+    # --- 6. ANALISI DATI E GRAFICI (LOGICA ROBUSTA) ---
     st.subheader("📊 I tuoi progressi settimanali")
     try:
+        # Recupero dati dal database
         res = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).execute()
         
         if res.data and len(res.data) > 0:
             df = pd.DataFrame(res.data)
-            df['created_at'] = pd.to_datetime(df['created_at'])
             
-            # KPI Medie
-            settimana_fa = datetime.now() - timedelta(days=7)
-            df_week = df[df['created_at'] > settimana_fa]
-            
-            avg_f = df_week['fatica'].mean() if not df_week.empty else 0
-            avg_s = df_week['ore_sonno'].mean() if not df_week.empty else 0
+            # Verifichiamo che le colonne esistano
+            if 'fatica' in df.columns and 'ore_sonno' in df.columns:
+                df['created_at'] = pd.to_datetime(df['created_at'])
+                
+                # Calcolo KPI ultime 168 ore (7 giorni)
+                settimana_fa = datetime.now() - timedelta(days=7)
+                df_week = df[df['created_at'] > settimana_fa]
+                
+                avg_f = df_week['fatica'].mean() if not df_week.empty else 0
+                avg_s = df_week['ore_sonno'].mean() if not df_week.empty else 0
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Media Fatica (7g)", f"{avg_f:.1f}/10")
-            m2.metric("Media Sonno (7g)", f"{avg_s:.1f}h")
-            m3.metric("Voci totali", len(df))
+                # Visualizzazione Metriche
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Media Fatica (7g)", f"{avg_f:.1f}/10", delta_color="inverse")
+                m2.metric("Media Sonno (7g)", f"{avg_s:.1f}h")
+                m3.metric("Record Totali", len(df))
 
-            # Grafico
-            df_plot = df.sort_values('created_at').tail(14)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['fatica'], name="Fatica", line=dict(color='#d63031', width=3)))
-            fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['ore_sonno'], name="Sonno", line=dict(color='#0984e3', width=3)))
-            fig.update_layout(height=350, template="plotly_white", margin=dict(l=0,r=0,t=20,b=0))
-            st.plotly_chart(fig, use_container_width=True)
+                # Grafico Plotly
+                df_plot = df.sort_values('created_at').tail(14) # Mostra ultimi 14 inserimenti
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['fatica'], 
+                                         name="Fatica", line=dict(color='#d63031', width=3), mode='lines+markers'))
+                fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['ore_sonno'], 
+                                         name="Sonno", line=dict(color='#0984e3', width=3), mode='lines+markers'))
+                
+                fig.update_layout(
+                    height=350, 
+                    template="plotly_white", 
+                    margin=dict(l=0,r=0,t=20,b=0),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning(f"Attenzione: Le colonne fatica/ore_sonno non sono state trovate. Colonne attuali: {df.columns.tolist()}")
         else:
-            st.info("👋 Benvenuto! Inserisci i dati nel modulo sopra per visualizzare il grafico e le medie.")
+            st.info("👋 Non ci sono ancora dati registrati. Inserisci il tuo primo diario qui sopra per attivare i grafici!")
+            
     except Exception as e:
-        st.warning("Configurazione grafici in corso...")
+        st.error(f"Errore tecnico nel caricamento dei grafici: {e}")
 
-    # --- 6. COACH AI ---
+    # --- 7. COACH SCIENTIFICO ---
     st.divider()
     st.subheader("🔬 Supporto Scientifico")
     
@@ -157,20 +173,23 @@ else:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         col1, col2, col3 = st.columns(3)
         p_rapido = None
-        if col1.button("🌙 Recupero Notte"): p_rapido = "Strategie per recuperare dopo la notte."
-        if col2.button("🥗 Dieta"): p_rapido = "Consigli dieta per turnisti."
-        if col3.button("🗑️ Reset Chat"): st.session_state.msgs = []; st.rerun()
+        if col1.button("🌙 Recupero Post-Notte"): p_rapido = "Quali sono le migliori strategie scientifiche per recuperare dopo il turno di notte?"
+        if col2.button("🥗 Nutrizione Notturna"): p_rapido = "Cosa consiglia la cronobiologia riguardo l'alimentazione durante il turno di notte?"
+        if col3.button("🗑️ Reset Chat"): 
+            st.session_state.msgs = []
+            st.rerun()
 
-        chat_in = st.chat_input("Chiedi un consiglio...")
+        chat_in = st.chat_input("Fai una domanda sulla gestione dei turni...")
         q = chat_in or p_rapido
 
         if q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": q})
             
-            sys_msg = "Sei un esperto in cronobiologia. Dai consigli scientifici non medici."
+            # Contesto per l'IA
+            sys_msg = "Sei un esperto in cronobiologia. NON sei un medico. Fornisci consigli basati su studi scientifici."
             if "pdf_text" in st.session_state:
-                sys_msg += f" Turni: {st.session_state.pdf_text[:500]}"
+                sys_msg += f" Basati su questo piano turni: {st.session_state.pdf_text[:500]}"
             
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
