@@ -22,24 +22,38 @@ sb = init_db()
 def load_users():
     try:
         res = sb.table("profiles").select("*").execute()
-        return {u["username"]: {"name": u["name"], "password": u["password"]} for u in res.data}
+        # Struttura dati richiesta dall'autenticatore
+        if not res.data:
+            return {}
+        return {u["username"]: {"name": u["name"], "password": u["password"], "email": u.get("email", "")} for u in res.data}
     except:
         return {}
 
+# Inizializzazione dati
 if "user_db" not in st.session_state:
     st.session_state.user_db = load_users()
 
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
-# --- 2. AUTENTICAZIONE ---
-credentials = {"credentials": {"usernames": st.session_state.user_db}}
+# --- 2. AUTENTICAZIONE (Correzione Struttura KeyError) ---
+# La libreria vuole ESATTAMENTE questa gerarchia
+config = {
+    "credentials": {
+        "usernames": st.session_state.user_db
+    },
+    "cookie": {
+        "expiry_days": 30,
+        "key": "turnosano_signature",
+        "name": "turnosano_cookie"
+    }
+}
 
 auth = stauth.Authenticate(
-    credentials,
-    "turnosano_cookie",
-    "signature_key_2026",
-    30
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
 )
 
 # --- 3. LOGICA DI NAVIGAZIONE ---
@@ -57,30 +71,34 @@ if not st.session_state.get("authentication_status"):
             st.rerun()
 
     else:
-        st.subheader("📝 Registrazione Nuovo Utente")
-        # pre_authorization=False è fondamentale per permettere l'iscrizione libera
+        st.subheader("📝 Registrazione")
+        # Gestione corretta dell'output della registrazione
         try:
-            # Catturiamo il risultato in una variabile per elaborarlo con calma
-            email, username, password = auth.register_user(location='main', pre_authorization=False)
+            # register_user restituisce i dati inseriti dopo la pressione del tasto
+            result = auth.register_user(location='main', pre_authorization=False)
             
-            if username:
-                # Se arriviamo qui, l'utente ha compilato tutto e premuto il tasto
-                sb.table("profiles").insert({
-                    "username": str(username), 
-                    "name": str(username), # Usiamo username come nome visualizzato
-                    "password": str(password)
-                }).execute()
+            if result:
+                # result è una tupla: (email, username, password)
+                new_email, new_username, new_password = result
                 
-                st.success(f"✅ Utente '{username}' registrato con successo!")
-                st.session_state.user_db = load_users()
-                st.info("Clicca il pulsante qui sotto per tornare al Login.")
-                
-                if st.button("Vai al Login"):
-                    st.session_state.auth_mode = "login"
-                    st.rerun()
+                if new_username:
+                    sb.table("profiles").insert({
+                        "username": str(new_username), 
+                        "name": str(new_username), 
+                        "password": str(new_password),
+                        "email": str(new_email)
+                    }).execute()
                     
+                    st.success(f"✅ Utente '{new_username}' registrato!")
+                    st.session_state.user_db = load_users() # Ricarica dal DB
+                    st.info("Ora puoi tornare al Login.")
+                    
+                    if st.button("Vai al Login"):
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                        
         except Exception as e:
-            st.warning("Compila tutti i campi sopra e premi 'Register'.")
+            st.warning("Compila tutti i campi per registrarti.")
         
         st.write("---")
         if st.button("Annulla e torna al login"):
@@ -101,15 +119,19 @@ else:
     st.title("🏥 Dashboard")
 
     with st.form("wellness_form", clear_on_submit=True):
-        f_val = st.slider("Fatica", 1, 10, 5)
-        s_val = st.number_input("Ore sonno", 0, 24, 7)
-        if st.form_submit_button("Salva"):
-            sb.table("wellness").insert({
-                "user_id": st.session_state['username'], 
-                "fatica": f_val, 
-                "ore_sonno": s_val
-            }).execute()
-            st.success("Salvato!")
+        st.subheader("📝 Diario")
+        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore sonno", 0.0, 24.0, 7.0, step=0.5)
+        if st.form_submit_button("Salva Parametri"):
+            try:
+                sb.table("wellness").insert({
+                    "user_id": st.session_state['username'], 
+                    "fatica": float(f_val), 
+                    "ore_sonno": float(s_val)
+                }).execute()
+                st.success("Dati salvati!")
+                st.rerun()
+            except: st.error("Errore nel salvataggio.")
 
     # --- 5. COACH SCIENTIFICO ---
     st.divider()
@@ -118,8 +140,8 @@ else:
         
         c1, c2 = st.columns(2)
         q = None
-        if c1.button("🌙 Recupero Notte"): q = "Strategie scientifiche recupero post-notte."
-        if c2.button("🥗 Dieta Turnisti"): q = "Consigli nutrizionali per turnisti."
+        if c1.button("🌙 Recupero Notte"): q = "Strategie scientifiche per il post-notte."
+        if c2.button("🥗 Dieta Turnisti"): q = "Consigli nutrizionali per chi lavora su turni."
 
         chat_in = st.chat_input("Chiedi un consiglio scientifico...")
         prompt = chat_in or q
@@ -128,9 +150,9 @@ else:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": prompt})
             
-            sys_prompt = "Sei un esperto in cronobiologia. Fornisci consigli basati su studi scientifici. Non sei un medico."
+            sys_msg = "Sei un esperto in cronobiologia. Fornisci consigli basati su studi scientifici. Non sei un medico."
             res_ai = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_prompt}] + st.session_state.msgs,
+                messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
             )
             st.session_state.msgs.append({"role": "assistant", "content": res_ai.choices[0].message.content})
