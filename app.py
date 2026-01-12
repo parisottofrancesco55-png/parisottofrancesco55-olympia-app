@@ -65,16 +65,23 @@ else:
 
     st.title("🏥 TurnoSano AI")
 
-    with st.form("wellness_form"):
+    # --- FORM BENESSERE (Con Submit Button Corretto) ---
+    with st.form("wellness_form", clear_on_submit=True):
         st.subheader("📝 Diario del Benessere")
         f_val = st.slider("Fatica percepita (1-10)", 1, 10, 5)
         s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
-        if st.form_submit_button("Salva Parametri"):
+        
+        # IL PULSANTE DI INVIO DEVE ESSERE DENTRO IL "WITH ST.FORM"
+        submitted = st.form_submit_button("Salva Parametri")
+        
+        if submitted:
             try:
                 data_in = {"user_id": str(st.session_state['username']), "fatica": float(f_val), "ore_sonno": float(s_val)}
                 sb.table("wellness").insert(data_in).execute()
-                st.success("Dati salvati!")
-            except Exception as e: st.error(f"Errore: {e}")
+                st.success("Dati salvati correttamente!")
+                st.rerun()
+            except Exception as e: 
+                st.error(f"Errore nel salvataggio: {e}")
 
     with st.expander("📂 I tuoi ultimi dati"):
         try:
@@ -83,7 +90,7 @@ else:
                 df = pd.DataFrame(res_w.data)
                 df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
                 st.table(df[["Data", "fatica", "ore_sonno"]])
-        except: st.info("Nessun dato.")
+        except: st.info("Nessun dato presente nel database.")
 
     # --- 5. ASSISTENTE SCIENTIFICO CON DOMANDE RAPIDE ---
     st.divider()
@@ -92,16 +99,16 @@ else:
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
-        # DOMANDE RAPIDE (RIPRISTINATE)
+        # DOMANDE RAPIDE
         c1, c2, c3 = st.columns(3)
         p_rapido = None
-        if c1.button("🌙 Strategia Notte"): p_rapido = "Quali studi suggeriscono come gestire il debito di sonno post-notte?"
-        if c2.button("🥗 Nutrizione"): p_rapido = "Cosa dice la cronobiologia sui pasti durante il turno notturno?"
+        if c1.button("🌙 Strategia Notte"): p_rapido = "Fornisci strategie basate su studi scientifici per gestire il post-turno di notte."
+        if c2.button("🥗 Nutrizione"): p_rapido = "Cosa dice la letteratura scientifica sull'alimentazione ideale per chi lavora di notte?"
         if c3.button("🗑️ Reset Chat"):
             st.session_state.msgs = []
             st.rerun()
 
-        chat_in = st.chat_input("Chiedi una strategia...")
+        chat_in = st.chat_input("Chiedi una strategia scientifica...")
         q = chat_in or p_rapido
 
         if q:
@@ -109,9 +116,9 @@ else:
             st.session_state.msgs.append({"role": "user", "content": q})
             
             sys_prompt = (
-                "Sei un assistente esperto in cronobiologia e medicina del lavoro. "
-                "NON sei un medico e NON dai consigli clinici. Fornisci strategie basate su studi scientifici "
-                "riguardo igiene del sonno, gestione luce e nutrizione per turnisti."
+                "Sei un assistente esperto in cronobiologia e medicina occupazionale. "
+                "NON sei un medico e NON fornisci diagnosi. Il tuo compito è dare consigli "
+                "basati esclusivamente su evidenze scientifiche riguardo i ritmi circadiani e il sonno."
             )
             if "pdf_text" in st.session_state:
                 sys_prompt += f" Considera questi turni: {st.session_state.pdf_text[:400]}"
