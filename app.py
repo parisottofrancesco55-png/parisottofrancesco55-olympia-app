@@ -65,11 +65,9 @@ if not st.session_state.get("authentication_status"):
             new_pw = st.text_input("Password", type="password")
             confirm_pw = st.text_input("Conferma Password", type="password")
             
-            # --- AGGIUNTA PRIVACY ---
             st.markdown("---")
-            st.caption("I tuoi dati saranno criptati e protetti nei server di Zurigo (CH).")
+            st.caption("🛡️ Sicurezza: I tuoi dati saranno protetti nei server di Zurigo (CH).")
             privacy_check = st.checkbox("Accetto la Privacy Policy e il trattamento dei dati personali e sanitari (GDPR)")
-            # ----------------------
 
             submit_reg = st.form_submit_button("Crea Account")
             
@@ -105,11 +103,25 @@ else:
     # --- 4. AREA RISERVATA (LOGGED IN) ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
     
-    # --- INFO PRIVACY SEMPRE VISIBILI ---
+    # NOTE LEGALI SIDEBAR
     with st.sidebar.expander("⚖️ Note Legali e Privacy"):
         st.caption("**Titolare:** Sviluppo Spagna")
         st.caption("**Server:** Zurigo, Svizzera")
-        st.write("I tuoi dati sanitari sono trattati secondo il GDPR. Puoi richiedere la cancellazione in ogni momento.")
+        st.write("I dati sanitari sono trattati secondo il GDPR.")
+
+    # CANCELLAZIONE ACCOUNT (Diritto all'oblio)
+    with st.sidebar.expander("🗑️ Gestione Account"):
+        st.warning("La cancellazione è irreversibile.")
+        conferma_del = st.checkbox("Confermo eliminazione dati")
+        if st.button("Elimina Account Definitivamente"):
+            if conferma_del:
+                try:
+                    sb.table("wellness").delete().eq("user_id", st.session_state['username']).execute()
+                    sb.table("profiles").delete().eq("username", st.session_state['username']).execute()
+                    st.success("Dati eliminati. Addio!")
+                    for key in list(st.session_state.keys()): del st.session_state[key]
+                    st.rerun()
+                except Exception as e: st.error(f"Errore: {e}")
 
     auth.logout('Esci', 'sidebar')
     
@@ -127,7 +139,7 @@ else:
     with st.expander("📝 Diario del Benessere - Inserisci dati oggi", expanded=True):
         with st.form("wellness_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            f_val = c1.slider("Livello Fatica (1=Riposato, 10=Esausto)", 1, 10, 5)
+            f_val = c1.slider("Livello Fatica (1-10)", 1, 10, 5)
             s_val = c2.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
             if st.form_submit_button("Salva Parametri"):
                 try:
@@ -150,7 +162,7 @@ else:
             df = pd.DataFrame(res.data)
             df['created_at'] = pd.to_datetime(df['created_at'])
             
-            # Calcolo KPI con gestione fuso orario (pytz)
+            # Calcolo fuso orario Zurigo/Italia/Spagna
             utc = pytz.UTC
             ora_attuale = datetime.now(utc)
             settimana_fa = ora_attuale - timedelta(days=7)
@@ -160,29 +172,22 @@ else:
             avg_f = df_week['fatica'].mean() if not df_week.empty else 0
             avg_s = df_week['ore_sonno'].mean() if not df_week.empty else 0
 
-            # Visualizzazione Metriche
             m1, m2, m3 = st.columns(3)
             m1.metric("Media Fatica (7g)", f"{avg_f:.1f}/10", delta_color="inverse")
             m2.metric("Media Sonno (7g)", f"{avg_s:.1f}h")
             m3.metric("Record Totali", len(df))
 
-            # Grafico Plotly
             df_plot = df.sort_values('created_at').tail(14)
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['fatica'], name="Fatica", line=dict(color='#d63031', width=3), mode='lines+markers'))
             fig.add_trace(go.Scatter(x=df_plot['created_at'], y=df_plot['ore_sonno'], name="Sonno", line=dict(color='#0984e3', width=3), mode='lines+markers'))
             
-            fig.update_layout(
-                height=350, 
-                template="plotly_white", 
-                margin=dict(l=0,r=0,t=20,b=0),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
+            fig.update_layout(height=350, template="plotly_white", margin=dict(l=0,r=0,t=20,b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("👋 Benvenuto! Inserisci i tuoi primi dati per vedere grafici e medie settimanali.")
+            st.info("👋 Inserisci i tuoi primi dati per vedere grafici e medie.")
     except Exception as e:
-        st.error(f"Errore tecnico caricamento grafici: {e}")
+        st.error(f"Errore tecnico grafici: {e}")
 
     # --- 7. COACH SCIENTIFICO AI ---
     st.divider()
@@ -192,33 +197,26 @@ else:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         col1, col2, col3 = st.columns(3)
         p_rapido = None
-        if col1.button("🌙 Recupero Post-Notte"): p_rapido = "Strategie scientifiche cronobiologiche per recuperare dopo il turno di notte."
-        if col2.button("🥗 Nutrizione Notturna"): p_rapido = "Consigli scientifici sull'alimentazione ideale per i turnisti di notte."
+        if col1.button("🌙 Recupero Post-Notte"): p_rapido = "Strategie cronobiologiche per recuperare dopo la notte."
+        if col2.button("🥗 Nutrizione Notturna"): p_rapido = "Consigli sull'alimentazione ideale per i turnisti."
         if col3.button("🗑️ Reset Chat"):
             st.session_state.msgs = []
             st.rerun()
 
-        chat_in = st.chat_input("Chiedi al coach (es: gestione luce, caffeina)...")
+        chat_in = st.chat_input("Chiedi al coach...")
         q = chat_in or p_rapido
 
         if q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": q})
-            
-            sys_msg = "Sei un esperto in cronobiologia e medicina del lavoro. NON sei un medico. Dai consigli basati su studi scientifici."
-            if "pdf_text" in st.session_state:
-                sys_msg += f" Considera questi turni dell'utente: {st.session_state.pdf_text[:500]}"
-            
-            res_ai = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
-                model="llama-3.1-8b-instant"
-            )
+            sys_msg = "Sei un esperto in cronobiologia. NON sei un medico. Considera questi turni: " + (st.session_state.pdf_text[:500] if "pdf_text" in st.session_state else "non caricati.")
+            res_ai = client.chat.completions.create(messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs, model="llama-3.1-8b-instant")
             st.session_state.msgs.append({"role": "assistant", "content": res_ai.choices[0].message.content})
 
         if "msgs" in st.session_state:
             for m in st.session_state.msgs:
                 with st.chat_message(m["role"]): st.write(m["content"])
 
-    # FOOTER DI TRASPARENZA
+    # FOOTER
     st.markdown("---")
-    st.caption("📍 Sviluppato in Spagna | 🛡️ Dati protetti a Zurigo, Svizzera | 🏥 TurnoSano AI v1.0")
+    st.caption("📍 Sviluppato in Spagna | 🛡️ Dati protetti a Zurigo (CH) | 🏥 TurnoSano AI v1.1")
