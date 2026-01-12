@@ -4,8 +4,9 @@ from supabase import create_client, Client
 from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
+import hashlib
 
-# --- 1. CONFIGURAZIONE PAGINA ---
+# --- 1. CONFIGURAZIONE ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
 def init_db():
@@ -14,7 +15,7 @@ def init_db():
         key = st.secrets["SUPABASE_KEY"].strip()
         return create_client(url, key)
     except Exception as e:
-        st.error(f"Errore configurazione Database: {e}")
+        st.error(f"Errore Database: {e}")
         st.stop()
 
 sb = init_db()
@@ -22,11 +23,11 @@ sb = init_db()
 def load_users():
     try:
         res = sb.table("profiles").select("*").execute()
-        if not res.data: return {}
-        return {u["username"]: {"name": u["name"], "password": u["password"], "email": u.get("email", "")} for u in res.data}
-    except: return {}
+        return {u["username"]: {"name": u["name"], "password": u["password"]} for u in res.data}
+    except:
+        return {}
 
-# Inizializzazione sessione
+# Inizializzazione dati
 if "user_db" not in st.session_state:
     st.session_state.user_db = load_users()
 
@@ -34,7 +35,6 @@ if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
 # --- 2. AUTENTICAZIONE ---
-# Passiamo la struttura corretta dei nomi utente
 auth = stauth.Authenticate(
     {"usernames": st.session_state.user_db},
     "turnosano_cookie",
@@ -57,33 +57,49 @@ if not st.session_state.get("authentication_status"):
             st.rerun()
 
     else:
-        st.subheader("📝 Registrazione")
-        # Chiamata pulita per evitare il TypeError e la scomparsa delle caselle
-        try:
-            # register_user genera automaticamente le caselle di testo e il pulsante
-            reg_data = auth.register_user(location='main')
+        st.subheader("📝 Registrazione Nuovo Utente")
+        
+        # MODULO MANUALE PER EVITARE ERRORI DELLA LIBRERIA
+        with st.form("registration_form"):
+            new_user = st.text_input("Scegli uno Username")
+            new_name = st.text_input("Inserisci il tuo Nome")
+            new_pw = st.text_input("Scegli una Password", type="password")
+            confirm_pw = st.text_input("Conferma Password", type="password")
             
-            if reg_data:
-                email, username, password = reg_data
-                if username:
-                    sb.table("profiles").insert({
-                        "username": str(username), 
-                        "name": str(username), 
-                        "password": str(password),
-                        "email": str(email)
-                    }).execute()
-                    st.success(f"✅ Registrazione di '{username}' riuscita!")
-                    st.session_state.user_db = load_users()
-                    st.info("Ora puoi cliccare il tasto sotto per accedere.")
-        except Exception as e:
-            st.error("Compila tutti i campi sopra e premi 'Register'.")
+            submit_reg = st.form_submit_button("Registrati Ora")
+            
+            if submit_reg:
+                if not new_user or not new_pw or not new_name:
+                    st.warning("Tutti i campi sono obbligatori!")
+                elif new_pw != confirm_pw:
+                    st.error("Le password non coincidono!")
+                elif len(new_pw) < 6:
+                    st.error("La password deve avere almeno 6 caratteri.")
+                elif new_user in st.session_state.user_db:
+                    st.error("Questo username esiste già!")
+                else:
+                    # Criptazione semplice della password per compatibilità
+                    hashed_pw = stauth.Hasher([new_pw]).generate()[0]
+                    
+                    try:
+                        sb.table("profiles").insert({
+                            "username": new_user,
+                            "name": new_name,
+                            "password": hashed_pw
+                        }).execute()
+                        
+                        st.success(f"✅ Utente {new_user} creato con successo!")
+                        st.session_state.user_db = load_users()
+                        st.info("Ora puoi tornare al login e accedere.")
+                    except Exception as e:
+                        st.error(f"Errore database: {e}")
         
         if st.button("Torna al Login"):
             st.session_state.auth_mode = "login"
             st.rerun()
 
 else:
-    # --- 4. DASHBOARD UTENTE (DOPO IL LOGIN) ---
+    # --- 4. APP PRINCIPALE ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
     auth.logout('Esci', 'sidebar')
     
@@ -91,73 +107,51 @@ else:
     if pdf_file:
         reader = PdfReader(pdf_file)
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
-        st.sidebar.success("Turno analizzato!")
+        st.sidebar.success("Turno caricato!")
 
-    st.title("🏥 Dashboard Benessere")
+    st.title("🏥 Dashboard")
 
-    # Form con pulsante di invio corretto
     with st.form("wellness_form", clear_on_submit=True):
-        st.subheader("📝 Diario Giornaliero")
-        f_val = st.slider("Fatica percepita (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
-        
-        # PULSANTE DI INVIO (Risolve l'errore Missing Submit Button)
-        submitted = st.form_submit_button("Salva Parametri")
-        
-        if submitted:
-            try:
-                sb.table("wellness").insert({
-                    "user_id": st.session_state['username'], 
-                    "fatica": float(f_val), 
-                    "ore_sonno": float(s_val)
-                }).execute()
-                st.success("Dati salvati!")
-                st.rerun()
-            except: 
-                st.error("Errore nel salvataggio dei dati.")
+        st.subheader("📝 Diario")
+        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore sonno", 0.0, 24.0, 7.0, step=0.5)
+        if st.form_submit_button("Salva Parametri"):
+            sb.table("wellness").insert({
+                "user_id": st.session_state['username'], 
+                "fatica": float(f_val), "ore_sonno": float(s_val)
+            }).execute()
+            st.success("Dati salvati!")
+            st.rerun()
 
     # Storico
-    with st.expander("📂 I tuoi ultimi inserimenti"):
+    with st.expander("📂 I tuoi ultimi dati"):
         try:
             res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
             if res_w.data:
                 df = pd.DataFrame(res_w.data)
                 df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
                 st.table(df[["Data", "fatica", "ore_sonno"]])
-        except:
-            st.info("Nessun dato ancora disponibile.")
+        except: st.info("Nessun dato.")
 
-    # --- 5. ASSISTENTE SCIENTIFICO ---
+    # --- 5. COACH SCIENTIFICO ---
     st.divider()
-    st.subheader("🔬 Strategie Scientifiche per Turnisti")
+    st.subheader("🔬 Supporto Scientifico")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        
-        # DOMANDE RAPIDE
         c1, c2, c3 = st.columns(3)
-        p_rapido = None
-        if c1.button("🌙 Recupero Notte"): p_rapido = "Quali sono le strategie di cronobiologia per il recupero post-notte?"
-        if c2.button("🥗 Nutrizione"): p_rapido = "Consigli sull'alimentazione durante i turni notturni secondo studi scientifici."
-        if c3.button("🗑️ Reset Chat"):
-            st.session_state.msgs = []
-            st.rerun()
+        q_click = None
+        if c1.button("🌙 Recupero Notte"): q_click = "Strategie scientifiche recupero post-notte."
+        if c2.button("🥗 Nutrizione"): q_click = "Consigli nutrizionali scientifici per turnisti."
+        if c3.button("🗑️ Reset Chat"): st.session_state.msgs = []; st.rerun()
 
-        chat_in = st.chat_input("Chiedi un consiglio scientifico...")
-        q = chat_in or p_rapido
+        chat_in = st.chat_input("Chiedi al coach...")
+        final_q = chat_in or q_click
 
-        if q:
+        if final_q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
-            st.session_state.msgs.append({"role": "user", "content": q})
-            
-            # PROMPT SCIENTIFICO (NON MEDICO)
-            sys_msg = (
-                "Sei un assistente esperto in cronobiologia e medicina del lavoro. "
-                "NON sei un medico e non devi dare consigli clinici o diagnosi. "
-                "Fornisci consigli comportamentali basati su studi scientifici riguardo l'igiene del sonno, "
-                "la gestione della luce e l'alimentazione dei turnisti."
-            )
-            
+            st.session_state.msgs.append({"role": "user", "content": final_q})
+            sys_msg = "Sei un esperto in cronobiologia. NON sei un medico. Dai consigli basati su studi scientifici."
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
