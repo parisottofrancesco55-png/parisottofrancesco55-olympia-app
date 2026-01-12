@@ -22,12 +22,9 @@ sb = init_db()
 def load_users():
     try:
         res = sb.table("profiles").select("*").execute()
-        if not res.data:
-            return {}
-        # Struttura dati richiesta dall'autenticatore
+        if not res.data: return {}
         return {u["username"]: {"name": u["name"], "password": u["password"], "email": u.get("email", "")} for u in res.data}
-    except:
-        return {}
+    except: return {}
 
 # Inizializzazione dati
 if "user_db" not in st.session_state:
@@ -37,11 +34,8 @@ if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
 # --- 2. AUTENTICAZIONE ---
-# Definiamo le credenziali partendo dal DB
-credentials = {"usernames": st.session_state.user_db}
-
 auth = stauth.Authenticate(
-    credentials,
+    {"usernames": st.session_state.user_db},
     "turnosano_cookie",
     "turnosano_key",
     30
@@ -63,30 +57,24 @@ if not st.session_state.get("authentication_status"):
 
     else:
         st.subheader("📝 Registrazione")
-        
-        # Mostriamo il modulo di registrazione
-        # Nota: register_user DEVE essere chiamato fuori da ogni condizione per restare visibile
-        result = auth.register_user(location='main', pre_authorization=False)
-        
-        if result:
-            new_email, new_username, new_password = result
-            if new_username:
-                try:
-                    # Salvataggio nel database Supabase
+        try:
+            # Chiamata compatibile con le versioni 0.3.x
+            reg_data = auth.register_user(location='main')
+            if reg_data:
+                email, username, password = reg_data
+                if username:
                     sb.table("profiles").insert({
-                        "username": str(new_username), 
-                        "name": str(new_username), 
-                        "password": str(new_password),
-                        "email": str(new_email)
+                        "username": str(username), 
+                        "name": str(username), 
+                        "password": str(password),
+                        "email": str(email)
                     }).execute()
-                    
-                    st.success(f"✅ Utente '{new_username}' registrato correttamente!")
-                    st.session_state.user_db = load_users() # Aggiorna la lista
-                    st.info("Clicca il pulsante sotto per andare al login.")
-                except Exception as e:
-                    st.error(f"Errore durante il salvataggio: {e}")
+                    st.success(f"✅ Registrazione di '{username}' riuscita!")
+                    st.session_state.user_db = load_users()
+                    st.info("Torna al Login per entrare.")
+        except Exception as e:
+            st.error(f"Errore: {e}. Assicurati di compilare tutti i campi.")
         
-        st.write("---")
         if st.button("Torna al Login"):
             st.session_state.auth_mode = "login"
             st.rerun()
@@ -104,38 +92,64 @@ else:
 
     st.title("🏥 Dashboard Benessere")
 
+    # Diario
     with st.form("wellness_form", clear_on_submit=True):
-        f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
+        st.subheader("📝 Diario")
+        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore sonno effettive", 0.0, 24.0, 7.0, step=0.5)
         if st.form_submit_button("Salva Parametri"):
             try:
                 sb.table("wellness").insert({
                     "user_id": st.session_state['username'], 
-                    "fatica": float(f_val), 
-                    "ore_sonno": float(s_val)
+                    "fatica": float(f_val), "ore_sonno": float(s_val)
                 }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
             except: st.error("Errore salvataggio.")
 
-    # --- 5. COACH SCIENTIFICO ---
+    # Storico (Tabella)
+    with st.expander("📂 I tuoi ultimi dati"):
+        try:
+            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
+            if res_w.data:
+                df = pd.DataFrame(res_w.data)
+                df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+                st.table(df[["Data", "fatica", "ore_sonno"]])
+            else:
+                st.info("Ancora nessun dato.")
+        except: st.info("Caricamento...")
+
+    # --- 5. ASSISTENTE SCIENTIFICO ---
     st.divider()
+    st.subheader("🔬 Supporto Scientifico per Turnisti")
+    
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
-        c1, c2 = st.columns(2)
-        q = None
-        if c1.button("🌙 Recupero Notte"): q = "Fornisci strategie scientifiche per il post-notte."
-        if c2.button("🥗 Dieta Turnisti"): q = "Consigli nutrizionali cronobiologici per turnisti."
+        # DOMANDE RAPIDE
+        c1, c2, c3 = st.columns(3)
+        p_rapido = None
+        if c1.button("🌙 Recupero Notte"): p_rapido = "Strategie scientifiche (cronobiologia) per recuperare dopo il turno di notte."
+        if c2.button("🥗 Nutrizione"): p_rapido = "Cosa dice la scienza sull'alimentazione ideale per i turnisti notturni?"
+        if c3.button("🗑️ Reset Chat"):
+            st.session_state.msgs = []
+            st.rerun()
 
         chat_in = st.chat_input("Chiedi un consiglio scientifico...")
-        prompt = chat_in or q
+        q = chat_in or p_rapido
 
-        if prompt:
+        if q:
             if "msgs" not in st.session_state: st.session_state.msgs = []
-            st.session_state.msgs.append({"role": "user", "content": prompt})
+            st.session_state.msgs.append({"role": "user", "content": q})
             
-            sys_msg = "Sei un esperto in cronobiologia. Fornisci consigli basati su studi scientifici. Non sei un medico."
+            sys_msg = (
+                "Sei un assistente scientifico esperto in cronobiologia. "
+                "NON sei un medico e non dai pareri clinici. Fornisci consigli basati su studi "
+                "scientifici riguardo l'igiene del sonno e la gestione dei ritmi circadiani."
+            )
+            if "pdf_text" in st.session_state:
+                sys_msg += f" Considera questi turni: {st.session_state.pdf_text[:300]}"
+
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
