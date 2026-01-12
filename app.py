@@ -5,14 +5,14 @@ from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
 # Connessione Supabase
 try:
     sb: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 except:
-    st.error("Errore: Verifica SUPABASE_URL e SUPABASE_KEY nei Secrets!")
+    st.error("Errore: Credenziali Supabase mancanti nei Secrets!")
     st.stop()
 
 # --- 2. FUNZIONI DATABASE ---
@@ -28,7 +28,8 @@ def save_wellness(u, f, s):
     try:
         sb.table("wellness").insert({"user_id": str(u), "fatica": float(f), "ore_sonno": float(s)}).execute()
         return True
-    except:
+    except Exception as e:
+        st.error(f"Errore salvataggio: {e}")
         return False
 
 # --- 3. AUTENTICAZIONE (v0.3.0+) ---
@@ -48,7 +49,7 @@ if not st.session_state.get("authentication_status"):
     with t_login:
         auth.login(location='main')
         if st.session_state["authentication_status"] is False:
-            st.error("Credenziali non valide.")
+            st.error("Username o password errati.")
     
     with t_reg:
         try:
@@ -59,7 +60,7 @@ if not st.session_state.get("authentication_status"):
                     sb.table("profiles").insert({"username": str(uname), "name": str(info['name']), "password": str(info['password'])}).execute()
                     st.success("Registrato! Ora puoi accedere.")
                     st.session_state.config = get_user_config()
-        except Exception as e:
+        except:
             st.info("Scegli un username e password (min. 6 caratteri).")
 
 else:
@@ -67,7 +68,6 @@ else:
     if "msgs" not in st.session_state: st.session_state.msgs = []
     if "pdf_txt" not in st.session_state: st.session_state.pdf_txt = ""
 
-    # Sidebar
     with st.sidebar:
         st.title("👨‍⚕️ Menù")
         st.write(f"In servizio: **{st.session_state['name']}**")
@@ -77,11 +77,11 @@ else:
         if pdf:
             reader = PdfReader(pdf)
             st.session_state.pdf_txt = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
-            st.success("Turno analizzato!")
+            st.sidebar.success("PDF analizzato!")
 
     st.title("🏥 TurnoSano AI")
 
-    # Diario
+    # Modulo Inserimento
     with st.form("wellness_form"):
         st.subheader("📝 Diario del Benessere")
         f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
@@ -91,16 +91,20 @@ else:
                 st.success("Dati salvati!")
                 st.rerun()
 
-    # Storico Semplice (Tabella)
+    # Storico con Debug
     with st.expander("📂 I tuoi ultimi inserimenti"):
         try:
-            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
+            res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(10).execute()
+            
             if res_w.data:
-                st.table(pd.DataFrame(res_w.data)[["created_at", "fatica", "ore_sonno"]])
+                df = pd.DataFrame(res_w.data)
+                # Formattazione data leggibile
+                df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+                st.table(df[["Data", "fatica", "ore_sonno"]])
             else:
-                st.info("Nessun dato registrato.")
-        except:
-            st.warning("Database in aggiornamento...")
+                st.info("Nessun dato registrato nel database.")
+        except Exception as e:
+            st.error(f"Errore nel caricamento dei dati: {e}")
 
     # --- 5. COACH AI (GROQ) ---
     st.divider()
@@ -109,7 +113,6 @@ else:
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
-        # Comandi Rapidi
         c1, c2, c3 = st.columns(3)
         p_rapido = None
         if c1.button("🌙 SOS Notte"): p_rapido = "Consigli per il turno di notte."
