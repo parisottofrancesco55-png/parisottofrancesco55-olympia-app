@@ -19,25 +19,29 @@ def init_db():
 
 sb = init_db()
 
-# Recupero utenti centralizzato
+# Recupero utenti con struttura di sicurezza per evitare KeyError
 def load_users():
     try:
         res = sb.table("profiles").select("*").execute()
+        if not res.data:
+            return {}
         return {u["username"]: {"name": u["name"], "password": u["password"]} for u in res.data}
     except:
         return {}
 
-# Inizializzazione configurazione
+# Inizializzazione database utenti nello stato della sessione
 if "user_db" not in st.session_state:
     st.session_state.user_db = load_users()
 
-# Stato della pagina (login o iscrizione)
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
-# --- 2. AUTENTICAZIONE ---
+# --- 2. AUTENTICAZIONE (Correzione KeyError) ---
+# Creiamo sempre la struttura richiesta dalla libreria
+credentials = {"usernames": st.session_state.user_db if st.session_state.user_db else {}}
+
 auth = stauth.Authenticate(
-    {"credentials": {"usernames": st.session_state.user_db}},
+    credentials,
     "turnosano_cookie",
     "signature_key_2026",
     30
@@ -48,7 +52,6 @@ if not st.session_state.get("authentication_status"):
     st.title("🏥 TurnoSano AI")
     
     if st.session_state.auth_mode == "login":
-        # SCHERMATA LOGIN
         auth.login(location='main')
         if st.session_state["authentication_status"] is False:
             st.error("Username o password errati.")
@@ -59,10 +62,10 @@ if not st.session_state.get("authentication_status"):
             st.rerun()
 
     else:
-        # SCHERMATA ISCRIZIONE
         st.subheader("📝 Crea il tuo account")
+        # pre_authorization=False permette a chiunque di registrarsi
         try:
-            res_reg = auth.register_user(location='main', pre_authorization=False)
+            res_reg = auth.register_user(location='main')
             if res_reg and res_reg[0]:
                 u_name, u_info = res_reg
                 sb.table("profiles").insert({
@@ -71,26 +74,24 @@ if not st.session_state.get("authentication_status"):
                     "password": str(u_info['password'])
                 }).execute()
                 
-                st.success("✅ Registrazione completata con successo!")
-                # Aggiorna il database utenti in memoria
+                st.success("✅ Registrazione completata!")
+                # Aggiorna lo stato e torna al login
                 st.session_state.user_db = load_users()
-                # FORZA il ritorno al login dopo 2 secondi
-                st.info("Reindirizzamento al login in corso...")
                 st.session_state.auth_mode = "login"
                 st.rerun()
         except Exception as e:
-            st.error(f"Errore durante l'iscrizione: {e}")
+            st.info("Inserisci i dati per registrarti.")
         
         if st.button("Hai già un account? Accedi"):
             st.session_state.auth_mode = "login"
             st.rerun()
 
 else:
-    # --- 4. APP PRINCIPALE (DOPO IL LOGIN) ---
+    # --- 4. APP PRINCIPALE ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
-    auth.logout('Esci dall\'app', 'sidebar')
+    auth.logout('Esci', 'sidebar')
     
-    pdf_file = st.sidebar.file_uploader("Carica il tuo Turno (PDF)", type="pdf")
+    pdf_file = st.sidebar.file_uploader("Carica Turno (PDF)", type="pdf")
     if pdf_file:
         reader = PdfReader(pdf_file)
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
@@ -99,8 +100,9 @@ else:
     st.title("🏥 Dashboard Benessere")
 
     with st.form("wellness_form", clear_on_submit=True):
-        f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
+        st.subheader("📝 Diario")
+        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore di sonno", 0.0, 24.0, 7.0, step=0.5)
         if st.form_submit_button("Salva Parametri"):
             try:
                 sb.table("wellness").insert({
@@ -110,27 +112,27 @@ else:
                 }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
-            except: st.error("Errore nel salvataggio.")
+            except: st.error("Errore salvataggio.")
 
-    # Storico
-    with st.expander("📂 I tuoi ultimi dati"):
+    with st.expander("📂 Storico"):
         try:
             res = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(5).execute()
             if res.data:
-                st.table(pd.DataFrame(res.data)[["fatica", "ore_sonno"]])
+                df = pd.DataFrame(res.data)
+                st.table(df[["fatica", "ore_sonno"]])
         except: st.info("Nessun dato.")
 
     # --- 5. COACH SCIENTIFICO ---
     st.divider()
-    st.subheader("🔬 Strategie basate su studi scientifici")
+    st.subheader("🔬 Strategie Scientifiche")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
         c1, c2, c3 = st.columns(3)
         p_rapido = None
-        if c1.button("🌙 Post-Notte"): p_rapido = "Strategie scientifiche per il recupero dopo il turno di notte."
-        if c2.button("🥗 Alimentazione"): p_rapido = "Consigli cronobiologici sulla nutrizione per turnisti."
+        if c1.button("🌙 Post-Notte"): p_rapido = "Strategie scientifiche recupero post-notte."
+        if c2.button("🥗 Dieta"): p_rapido = "Consigli nutrizionali cronobiologici."
         if c3.button("🗑️ Reset"):
             st.session_state.msgs = []
             st.rerun()
@@ -142,11 +144,7 @@ else:
             if "msgs" not in st.session_state: st.session_state.msgs = []
             st.session_state.msgs.append({"role": "user", "content": q})
             
-            sys_prompt = (
-                "Sei un assistente esperto in cronobiologia. NON sei un medico. "
-                "Fornisci consigli comportamentali basati su studi scientifici (es. igiene del sonno, gestione luce)."
-            )
-            
+            sys_prompt = "Sei un esperto in cronobiologia. NON sei un medico. Dai consigli basati su studi scientifici."
             res_ai = client.chat.completions.create(
                 messages=[{"role": "system", "content": sys_prompt}] + st.session_state.msgs,
                 model="llama-3.1-8b-instant"
