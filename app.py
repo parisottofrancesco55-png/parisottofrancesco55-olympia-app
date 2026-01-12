@@ -64,10 +64,19 @@ if not st.session_state.get("authentication_status"):
             new_name = st.text_input("Nome Visualizzato")
             new_pw = st.text_input("Password", type="password")
             confirm_pw = st.text_input("Conferma Password", type="password")
+            
+            # --- AGGIUNTA PRIVACY ---
+            st.markdown("---")
+            st.caption("I tuoi dati saranno criptati e protetti nei server di Zurigo (CH).")
+            privacy_check = st.checkbox("Accetto la Privacy Policy e il trattamento dei dati personali e sanitari (GDPR)")
+            # ----------------------
+
             submit_reg = st.form_submit_button("Crea Account")
             
             if submit_reg:
-                if not new_user or not new_pw or not new_name:
+                if not privacy_check:
+                    st.error("❌ Devi accettare la Privacy Policy per iscriverti.")
+                elif not new_user or not new_pw or not new_name:
                     st.warning("Compila tutti i campi!")
                 elif new_pw != confirm_pw:
                     st.error("Le password non coincidono.")
@@ -95,6 +104,13 @@ if not st.session_state.get("authentication_status"):
 else:
     # --- 4. AREA RISERVATA (LOGGED IN) ---
     st.sidebar.title(f"👋 {st.session_state['name']}")
+    
+    # --- INFO PRIVACY SEMPRE VISIBILI ---
+    with st.sidebar.expander("⚖️ Note Legali e Privacy"):
+        st.caption("**Titolare:** Sviluppo Spagna")
+        st.caption("**Server:** Zurigo, Svizzera")
+        st.write("I tuoi dati sanitari sono trattati secondo il GDPR. Puoi richiedere la cancellazione in ogni momento.")
+
     auth.logout('Esci', 'sidebar')
     
     # Caricamento PDF Turni
@@ -202,3 +218,7 @@ else:
         if "msgs" in st.session_state:
             for m in st.session_state.msgs:
                 with st.chat_message(m["role"]): st.write(m["content"])
+
+    # FOOTER DI TRASPARENZA
+    st.markdown("---")
+    st.caption("📍 Sviluppato in Spagna | 🛡️ Dati protetti a Zurigo, Svizzera | 🏥 TurnoSano AI v1.0")
