@@ -12,110 +12,107 @@ import pytz
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="wide")
 
 def init_db():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    try:
+        return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    except Exception as e:
+        st.error(f"Errore connessione Database: {e}")
+        st.stop()
 
 sb = init_db()
 
 def load_users():
-    """Carica gli utenti da Supabase e li formatta per l'Authenticator"""
+    """Carica gli utenti aggiornati dal database di Zurigo"""
     try:
         res = sb.table("profiles").select("*").execute()
-        # La versione 0.3+ richiede questa struttura precisa
-        user_dict = {"usernames": {}}
-        for u in res.data:
-            user_dict["usernames"][u["username"]] = {
-                "name": u["name"],
-                "password": u["password"]
-            }
-        return user_dict
+        return {"usernames": {u["username"]: {"name": u["name"], "password": u["password"]} for u in res.data}}
     except:
         return {"usernames": {}}
 
-# Inizializzazione Session State per la navigazione
+# Inizializzazione stati di navigazione
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
-if "user_db" not in st.session_state:
-    st.session_state.user_db = load_users()
 
-# --- 2. AUTENTICAZIONE ---
+# Caricamento utenti dinamico
+user_db = load_users()
+
+# --- 2. AUTENTICAZIONE (Versione stabile 0.3.1) ---
 auth = stauth.Authenticate(
-    st.session_state.user_db,
+    user_db,
     "turnosano_cookie",
     "turnosano_key",
     30
 )
 
-# --- 3. LOGICA DI ACCESSO / REGISTRAZIONE ---
+# --- 3. LOGICA LOGIN / REGISTRAZIONE ---
 if not st.session_state.get("authentication_status"):
-    placeholder = st.empty() # Pulisce l'interfaccia tra login e registrazione
     
     if st.session_state.auth_mode == "login":
-        with placeholder.container():
-            st.title("🏥 TurnoSano AI")
-            auth.login(location='main')
-            
-            if st.session_state["authentication_status"] is False:
-                st.error("Username o password errati.")
-            
-            st.write("---")
-            if st.button("Non hai un account? Registrati qui"):
-                st.session_state.auth_mode = "iscrizione"
-                st.rerun()
+        st.title("🏥 TurnoSano AI - Accedi")
+        auth.login(location='main')
+        
+        if st.session_state["authentication_status"] is False:
+            st.error("Username o password errati.")
+        
+        st.write("---")
+        if st.button("Non hai un account? Registrati ora"):
+            st.session_state.auth_mode = "iscrizione"
+            st.rerun()
 
     else:
-        with placeholder.container():
-            st.title("📝 Registrazione")
-            with st.form("reg_form"):
-                new_u = st.text_input("Username (per il login)").lower().strip()
-                new_n = st.text_input("Nome Visualizzato")
-                new_p = st.text_input("Password", type="password")
-                conf_p = st.text_input("Conferma Password", type="password")
-                
-                st.info("🛡️ Privacy: I tuoi dati sanitari sono salvati in forma criptata a Zurigo (CH).")
-                privacy = st.checkbox("Accetto la Privacy Policy e il trattamento dei dati.")
-                
-                if st.form_submit_button("Crea Account"):
-                    if not privacy:
-                        st.error("Devi accettare la privacy.")
-                    elif new_p != conf_p:
-                        st.error("Le password non coincidono.")
-                    elif not new_u or not new_p:
-                        st.error("Campi obbligatori mancanti.")
-                    elif new_u in st.session_state.user_db["usernames"]:
-                        st.error("Username già occupato.")
-                    else:
-                        hashed_pw = stauth.Hasher.hash(new_p)
-                        try:
-                            sb.table("profiles").insert({
-                                "username": new_u, "name": new_n, "password": hashed_pw
-                            }).execute()
-                            st.session_state.user_db = load_users() # Aggiorna il DB utenti
-                            st.success("✅ Account creato! Torna al login per entrare.")
-                        except Exception as e:
-                            st.error(f"Errore Database: {e}")
+        st.title("📝 Registrazione Nuovo Operatore")
+        with st.form("reg_form"):
+            new_u = st.text_input("Username (per il login)").lower().strip()
+            new_n = st.text_input("Nome Visualizzato")
+            new_p = st.text_input("Password", type="password")
+            conf_p = st.text_input("Conferma Password", type="password")
             
-            if st.button("Torna al Login"):
-                st.session_state.auth_mode = "login"
-                st.rerun()
+            st.info("🛡️ **Privacy:** I tuoi dati sono conservati a Zurigo (CH).")
+            privacy = st.checkbox("Accetto la Privacy Policy (GDPR)")
+            
+            if st.form_submit_button("Crea Account"):
+                if not privacy:
+                    st.error("Devi accettare la privacy.")
+                elif new_p != conf_p:
+                    st.error("Le password non coincidono.")
+                elif new_u in user_db["usernames"]:
+                    st.error("Username già occupato.")
+                elif len(new_p) < 6:
+                    st.error("Password troppo corta (min 6 car).")
+                else:
+                    h_pw = stauth.Hasher.hash(new_p)
+                    try:
+                        sb.table("profiles").insert({"username": new_u, "name": new_n, "password": h_pw}).execute()
+                        st.success("✅ Account creato con successo!")
+                        st.info("Ora clicca su 'Torna al Login'.")
+                    except Exception as e:
+                        st.error(f"Errore DB: {e}")
+        
+        if st.button("Torna al Login"):
+            st.session_state.auth_mode = "login"
+            st.rerun()
 
 else:
     # --- 4. DASHBOARD (UTENTE LOGGATO) ---
-    # RIGA 80 FIX: Parametri logout corretti per la versione stabile
     auth.logout('Esci', 'sidebar')
     
     st.sidebar.title(f"👋 {st.session_state['name']}")
     
-    # Sezione Note Legali e Gestione Dati
-    with st.sidebar.expander("⚖️ Privacy & Sicurezza"):
+    # PULSANTE SPECIALE PER NUOVI ACCOUNT
+    if st.sidebar.button("➕ Registra un altro utente"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.session_state.auth_mode = "iscrizione"
+        st.rerun()
+
+    # Sezione Privacy e Account
+    with st.sidebar.expander("⚖️ Gestione Dati"):
         st.caption("📍 Server: Zurigo, Svizzera")
         if st.button("Elimina i miei dati"):
-            try:
-                sb.table("wellness").delete().eq("user_id", st.session_state['username']).execute()
-                st.success("Dati puliti!")
-            except: st.error("Errore nella cancellazione.")
+            sb.table("wellness").delete().eq("user_id", st.session_state['username']).execute()
+            st.success("Dati puliti!")
 
-    # Caricamento PDF
-    pdf_file = st.sidebar.file_uploader("📅 Carica i tuoi Turni (PDF)", type="pdf")
+    # Caricamento PDF Turni
+    pdf_file = st.sidebar.file_uploader("📅 Carica Turno (PDF)", type="pdf")
     if pdf_file:
         reader = PdfReader(pdf_file)
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
@@ -123,76 +120,70 @@ else:
 
     st.title("📊 Monitoraggio Benessere")
 
-    # --- 5. INSERIMENTO DATI E GRAFICI ---
-    col_input, col_graph = st.columns([1, 2])
+    # --- 5. INSERIMENTO E GRAFICI ---
+    c_in, c_graph = st.columns([1, 2])
     
-    with col_input:
-        st.subheader("📝 Dati di oggi")
-        with st.form("daily_wellness", clear_on_submit=True):
-            f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
-            s_val = st.number_input("Ore di sonno", 0.0, 24.0, 7.0, step=0.5)
+    with c_in:
+        st.subheader("📝 Diario")
+        with st.form("wellness_data", clear_on_submit=True):
+            fatica = st.slider("Fatica (1-10)", 1, 10, 5)
+            sonno = st.number_input("Ore sonno", 0.0, 24.0, 7.0, step=0.5)
             if st.form_submit_button("Salva"):
-                try:
-                    sb.table("wellness").insert({
-                        "user_id": st.session_state['username'], 
-                        "fatica": float(f_val), 
-                        "ore_sonno": float(s_val)
-                    }).execute()
-                    st.rerun()
-                except Exception as e: st.error(f"Errore invio: {e}")
+                sb.table("wellness").insert({
+                    "user_id": st.session_state['username'], 
+                    "fatica": float(fatica), "ore_sonno": float(sonno)
+                }).execute()
+                st.rerun()
 
-    with col_graph:
-        st.subheader("📈 Andamento Settimanale")
+    with c_graph:
+        st.subheader("📈 Andamento")
         try:
             res = sb.table("wellness").select("*").eq("user_id", st.session_state['username']).execute()
             if res.data:
                 df = pd.DataFrame(res.data).sort_values('created_at')
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df['created_at'], y=df['fatica'], name="Fatica", line=dict(color='#FF4B4B', width=3)))
-                fig.add_trace(go.Scatter(x=df['created_at'], y=df['ore_sonno'], name="Sonno", line=dict(color='#0068C9', width=3)))
+                fig.add_trace(go.Scatter(x=df['created_at'], y=df['fatica'], name="Fatica", line=dict(color='red', width=3)))
+                fig.add_trace(go.Scatter(x=df['created_at'], y=df['ore_sonno'], name="Sonno", line=dict(color='blue', width=3)))
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), template="plotly_white")
                 st.plotly_chart(fig, use_container_width=True)
-        except: st.info("Inserisci i primi dati per visualizzare il grafico.")
+        except: st.info("Inserisci i dati per vedere il grafico.")
 
-    # --- 6. COACH IA E COMANDI RAPIDI ---
+    # --- 6. COACH IA + COMANDI RAPIDI ---
     st.divider()
-    st.subheader("🔬 Coach Scientifico TurnoSano")
+    st.subheader("🔬 Coach Scientifico AI")
     
     if "GROQ_API_KEY" in st.secrets:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         
-        # --- COMANDI RAPIDI ---
+        # Comandi Rapidi
         st.write("💡 **Azioni veloci:**")
-        c1, c2, c3 = st.columns(3)
-        fast_q = None
-        if c1.button("🌙 Recupero Post-Notte"): fast_q = "Dammi 3 consigli scientifici per recuperare il ritmo circadiano dopo una notte."
-        if c2.button("🥗 Alimentazione Notturna"): fast_q = "Cosa mangiare durante il turno di notte per non avere cali di energia?"
-        if c3.button("🗑️ Svuota Chat"): 
-            st.session_state.messages = []
+        col1, col2, col3 = st.columns(3)
+        q_veloce = None
+        if col1.button("🌙 Recupero Post-Notte"): q_veloce = "Consigli per recuperare il ritmo dopo una notte."
+        if col2.button("🥗 Dieta Turnista"): q_veloce = "Cosa mangiare durante la notte?"
+        if col3.button("🗑️ Reset Chat"): 
+            st.session_state.msgs = []
             st.rerun()
 
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+        if "msgs" not in st.session_state: st.session_state.msgs = []
+        
+        testo_chat = st.chat_input("Chiedi al coach...")
+        query_finale = q_veloce if q_veloce else testo_chat
 
-        chat_input = st.chat_input("Fai una domanda al coach...")
-        final_query = fast_q if fast_q else chat_input
-
-        if final_query:
-            st.session_state.messages.append({"role": "user", "content": final_query})
-            sys_prompt = "Sei un esperto di cronobiologia e salute dei turnisti. Rispondi in modo conciso e basato su prove scientifiche."
+        if query_finale:
+            st.session_state.msgs.append({"role": "user", "content": query_finale})
+            sys_msg = "Sei un esperto di cronobiologia. Rispondi in modo scientifico e breve."
             if "pdf_text" in st.session_state:
-                sys_prompt += f" Considera questi turni dell'utente: {st.session_state.pdf_text[:500]}"
+                sys_msg += f" Turni utente: {st.session_state.pdf_text[:500]}"
             
-            chat_completion = client.chat.completions.create(
-                messages=[{"role": "system", "content": sys_prompt}] + st.session_state.messages,
-                model="llama-3.1-8b-instant",
+            res_ai = client.chat.completions.create(
+                messages=[{"role": "system", "content": sys_msg}] + st.session_state.msgs,
+                model="llama-3.1-8b-instant"
             )
-            response = chat_completion.choices[0].message.content
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.session_state.msgs.append({"role": "assistant", "content": res_ai.choices[0].message.content})
 
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.write(msg["content"])
+        for m in st.session_state.msgs:
+            with st.chat_message(m["role"]): st.write(m["content"])
 
     st.markdown("---")
-    st.caption("📍 Sviluppato tra Spagna e Italia | 🛡️ Database: Zurigo (CH) | 🏥 TurnoSano AI v1.0")
+    st.caption("📍 Spagna-Italia | 🛡️ Zurigo (CH) | 🏥 TurnoSano AI")
