@@ -22,9 +22,9 @@ sb = init_db()
 def load_users():
     try:
         res = sb.table("profiles").select("*").execute()
-        # Struttura dati richiesta dall'autenticatore
         if not res.data:
             return {}
+        # Struttura dati richiesta dall'autenticatore
         return {u["username"]: {"name": u["name"], "password": u["password"], "email": u.get("email", "")} for u in res.data}
     except:
         return {}
@@ -36,24 +36,15 @@ if "user_db" not in st.session_state:
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"
 
-# --- 2. AUTENTICAZIONE (Correzione Struttura KeyError) ---
-# La libreria vuole ESATTAMENTE questa gerarchia
-config = {
-    "credentials": {
-        "usernames": st.session_state.user_db
-    },
-    "cookie": {
-        "expiry_days": 30,
-        "key": "turnosano_signature",
-        "name": "turnosano_cookie"
-    }
-}
+# --- 2. AUTENTICAZIONE ---
+# Definiamo le credenziali partendo dal DB
+credentials = {"usernames": st.session_state.user_db}
 
 auth = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
+    credentials,
+    "turnosano_cookie",
+    "turnosano_key",
+    30
 )
 
 # --- 3. LOGICA DI NAVIGAZIONE ---
@@ -72,16 +63,16 @@ if not st.session_state.get("authentication_status"):
 
     else:
         st.subheader("📝 Registrazione")
-        # Gestione corretta dell'output della registrazione
-        try:
-            # register_user restituisce i dati inseriti dopo la pressione del tasto
-            result = auth.register_user(location='main', pre_authorization=False)
-            
-            if result:
-                # result è una tupla: (email, username, password)
-                new_email, new_username, new_password = result
-                
-                if new_username:
+        
+        # Mostriamo il modulo di registrazione
+        # Nota: register_user DEVE essere chiamato fuori da ogni condizione per restare visibile
+        result = auth.register_user(location='main', pre_authorization=False)
+        
+        if result:
+            new_email, new_username, new_password = result
+            if new_username:
+                try:
+                    # Salvataggio nel database Supabase
                     sb.table("profiles").insert({
                         "username": str(new_username), 
                         "name": str(new_username), 
@@ -89,19 +80,14 @@ if not st.session_state.get("authentication_status"):
                         "email": str(new_email)
                     }).execute()
                     
-                    st.success(f"✅ Utente '{new_username}' registrato!")
-                    st.session_state.user_db = load_users() # Ricarica dal DB
-                    st.info("Ora puoi tornare al Login.")
-                    
-                    if st.button("Vai al Login"):
-                        st.session_state.auth_mode = "login"
-                        st.rerun()
-                        
-        except Exception as e:
-            st.warning("Compila tutti i campi per registrarti.")
+                    st.success(f"✅ Utente '{new_username}' registrato correttamente!")
+                    st.session_state.user_db = load_users() # Aggiorna la lista
+                    st.info("Clicca il pulsante sotto per andare al login.")
+                except Exception as e:
+                    st.error(f"Errore durante il salvataggio: {e}")
         
         st.write("---")
-        if st.button("Annulla e torna al login"):
+        if st.button("Torna al Login"):
             st.session_state.auth_mode = "login"
             st.rerun()
 
@@ -116,12 +102,11 @@ else:
         st.session_state.pdf_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
         st.sidebar.success("PDF Caricato")
 
-    st.title("🏥 Dashboard")
+    st.title("🏥 Dashboard Benessere")
 
     with st.form("wellness_form", clear_on_submit=True):
-        st.subheader("📝 Diario")
-        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
-        s_val = st.number_input("Ore sonno", 0.0, 24.0, 7.0, step=0.5)
+        f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
+        s_val = st.number_input("Ore di sonno effettive", 0.0, 24.0, 7.0, step=0.5)
         if st.form_submit_button("Salva Parametri"):
             try:
                 sb.table("wellness").insert({
@@ -131,7 +116,7 @@ else:
                 }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
-            except: st.error("Errore nel salvataggio.")
+            except: st.error("Errore salvataggio.")
 
     # --- 5. COACH SCIENTIFICO ---
     st.divider()
@@ -140,8 +125,8 @@ else:
         
         c1, c2 = st.columns(2)
         q = None
-        if c1.button("🌙 Recupero Notte"): q = "Strategie scientifiche per il post-notte."
-        if c2.button("🥗 Dieta Turnisti"): q = "Consigli nutrizionali per chi lavora su turni."
+        if c1.button("🌙 Recupero Notte"): q = "Fornisci strategie scientifiche per il post-notte."
+        if c2.button("🥗 Dieta Turnisti"): q = "Consigli nutrizionali cronobiologici per turnisti."
 
         chat_in = st.chat_input("Chiedi un consiglio scientifico...")
         prompt = chat_in or q
