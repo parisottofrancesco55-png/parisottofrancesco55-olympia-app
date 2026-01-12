@@ -1,7 +1,8 @@
 streamlit
-streamlit-authenticator
+pandas
 supabase
 groq
 PyPDF2
+streamlit-authenticator==0.3.1
 plotly
-pandas
+pytz
