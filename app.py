@@ -5,18 +5,23 @@ from groq import Groq
 from PyPDF2 import PdfReader
 import streamlit_authenticator as stauth
 
-# --- 1. CONFIGURAZIONE PAGINA ---
+# --- 1. CONFIGURAZIONE ---
 st.set_page_config(page_title="TurnoSano AI", page_icon="🏥", layout="centered")
 
-# Connessione Supabase
-try:
-    sb: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-except:
-    st.error("Errore: Credenziali Supabase mancanti nei Secrets!")
-    st.stop()
+# Funzione connessione sicura (Risolve l'errore 404/JSON)
+def connect_db():
+    try:
+        url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
+        key = st.secrets["SUPABASE_KEY"].strip()
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"Configurazione Secrets incompleta: {e}")
+        st.stop()
+
+sb = connect_db()
 
 # --- 2. FUNZIONI DATABASE ---
-def get_user_config():
+def get_auth_data():
     try:
         res = sb.table("profiles").select("*").execute()
         utenti = {u["username"]: {"name": u["name"], "password": u["password"]} for u in res.data}
@@ -24,17 +29,9 @@ def get_user_config():
     except:
         return {"credentials": {"usernames": {}}}
 
-def save_wellness(u, f, s):
-    try:
-        sb.table("wellness").insert({"user_id": str(u), "fatica": float(f), "ore_sonno": float(s)}).execute()
-        return True
-    except Exception as e:
-        st.error(f"Errore salvataggio: {e}")
-        return False
-
-# --- 3. AUTENTICAZIONE (v0.3.0+) ---
+# --- 3. GESTIONE AUTENTICAZIONE (v0.3.0+) ---
 if "config" not in st.session_state:
-    st.session_state.config = get_user_config()
+    st.session_state.config = get_auth_data()
 
 auth = stauth.Authenticate(
     st.session_state.config['credentials'],
@@ -49,62 +46,68 @@ if not st.session_state.get("authentication_status"):
     with t_login:
         auth.login(location='main')
         if st.session_state["authentication_status"] is False:
-            st.error("Username o password errati.")
+            st.error("Credenziali errate.")
     
     with t_reg:
         try:
-            res = auth.register_user(location='main')
-            if res:
-                uname, info = res
-                if uname:
-                    sb.table("profiles").insert({"username": str(uname), "name": str(info['name']), "password": str(info['password'])}).execute()
-                    st.success("Registrato! Ora puoi accedere.")
-                    st.session_state.config = get_user_config()
+            res_reg = auth.register_user(location='main')
+            if res_reg and res_reg[0]:
+                sb.table("profiles").insert({
+                    "username": str(res_reg[0]), 
+                    "name": str(res_reg[1]['name']), 
+                    "password": str(res_reg[1]['password'])
+                }).execute()
+                st.success("Registrato! Ora puoi accedere dal tab Accedi.")
+                st.session_state.config = get_auth_data()
         except:
-            st.info("Scegli un username e password (min. 6 caratteri).")
-
+            st.info("Inserisci username e password (min. 6 caratteri).")
 else:
-    # --- 4. DASHBOARD UTENTE ---
+    # --- 4. DASHBOARD UTENTE LOGGATO ---
     if "msgs" not in st.session_state: st.session_state.msgs = []
     if "pdf_txt" not in st.session_state: st.session_state.pdf_txt = ""
 
     with st.sidebar:
         st.title("👨‍⚕️ Menù")
         st.write(f"In servizio: **{st.session_state['name']}**")
-        auth.logout('Disconnetti', 'sidebar')
+        auth.logout('Esci', 'sidebar')
         st.divider()
         pdf = st.file_uploader("Carica Turno (PDF)", type="pdf")
         if pdf:
             reader = PdfReader(pdf)
             st.session_state.pdf_txt = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
-            st.sidebar.success("PDF analizzato!")
+            st.success("PDF caricato!")
 
     st.title("🏥 TurnoSano AI")
 
-    # Modulo Inserimento
+    # Inserimento Dati
     with st.form("wellness_form"):
         st.subheader("📝 Diario del Benessere")
-        f_val = st.slider("Livello Fatica (1-10)", 1, 10, 5)
+        f_val = st.slider("Fatica (1-10)", 1, 10, 5)
         s_val = st.number_input("Ore Sonno", 0.0, 24.0, 7.0, step=0.5)
         if st.form_submit_button("Salva Parametri"):
-            if save_wellness(st.session_state['username'], f_val, s_val):
+            try:
+                sb.table("wellness").insert({
+                    "user_id": st.session_state['username'], 
+                    "fatica": float(f_val), 
+                    "ore_sonno": float(s_val)
+                }).execute()
                 st.success("Dati salvati!")
                 st.rerun()
+            except Exception as e:
+                st.error(f"Errore salvataggio: {e}")
 
-    # Storico con Debug
-    with st.expander("📂 I tuoi ultimi inserimenti"):
+    # Storico Semplice
+    with st.expander("📂 I tuoi ultimi dati"):
         try:
             res_w = sb.table("wellness").select("*").filter("user_id", "eq", st.session_state['username']).order("created_at", desc=True).limit(10).execute()
-            
             if res_w.data:
                 df = pd.DataFrame(res_w.data)
-                # Formattazione data leggibile
                 df['Data'] = pd.to_datetime(df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
                 st.table(df[["Data", "fatica", "ore_sonno"]])
             else:
-                st.info("Nessun dato registrato nel database.")
+                st.info("Nessun dato presente.")
         except Exception as e:
-            st.error(f"Errore nel caricamento dei dati: {e}")
+            st.error(f"Errore caricamento storico: {e}")
 
     # --- 5. COACH AI (GROQ) ---
     st.divider()
